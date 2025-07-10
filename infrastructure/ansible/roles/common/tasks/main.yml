@@ -1,0 +1,102 @@
+# infrastructure/ansible/roles/common/tasks/main.yml
+# Общие задачи для всех нод
+
+---
+# Проверка ОС
+- name: Check OS version
+  assert:
+    that:
+      - ansible_distribution == "Ubuntu"
+      - ansible_distribution_version is version('20.04', '>=')
+    fail_msg: "This playbook requires Ubuntu 20.04 or newer"
+    success_msg: "OS version is supported: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+# Настройка hostname
+- name: Set hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Update /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1'
+    line: "127.0.1.1 {{ inventory_hostname }}"
+    state: present
+
+# Базовая безопасность
+- name: Ensure root login is disabled
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^PermitRootLogin'
+    line: 'PermitRootLogin no'
+    state: present
+  notify: restart sshd
+
+# Настройка логирования
+- name: Configure rsyslog
+  lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^\$ActionFileDefaultTemplate', line: '$ActionFileDefaultTemplate RSYSLOG_TraditionalFileFormat' }
+  notify: restart rsyslog
+
+# Очистка старых логов
+- name: Setup logrotate for system logs
+  copy:
+    dest: /etc/logrotate.d/kubernetes
+    content: |
+      /var/log/pods/*/*.log {
+          daily
+          rotate 3
+          missingok
+          notifempty
+          compress
+          maxsize 100M
+      }
+
+# Monitoring агенты (опционально)
+- name: Install node exporter for Prometheus
+  block:
+    - name: Download node exporter
+      unarchive:
+        src: https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
+        dest: /tmp
+        remote_src: yes
+        creates: /tmp/node_exporter-1.7.0.linux-amd64
+
+    - name: Copy node exporter binary
+      copy:
+        src: /tmp/node_exporter-1.7.0.linux-amd64/node_exporter
+        dest: /usr/local/bin/node_exporter
+        mode: '0755'
+        remote_src: yes
+
+    - name: Create node exporter service
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Node Exporter
+          After=network.target
+          
+          [Service]
+          Type=simple
+          User=nobody
+          Group=nogroup
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=always
+          RestartSec=5
+          
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Start node exporter
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: started
+        daemon_reload: yes
+  tags: monitoring

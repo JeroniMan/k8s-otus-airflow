@@ -1,0 +1,127 @@
+# kubernetes/argocd/apps/ingress-nginx.yaml
+# ArgoCD Application для Ingress NGINX Controller
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-nginx
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: production
+
+  source:
+    repoURL: https://kubernetes.github.io/ingress-nginx
+    targetRevision: 4.8.3
+    chart: ingress-nginx
+    helm:
+      releaseName: ingress-nginx
+      values: |
+        controller:
+          # Service configuration
+          service:
+            type: NodePort
+            nodePorts:
+              http: 32080
+              https: 32443
+            externalTrafficPolicy: Local
+          
+          # Resources
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          
+          # Replicas for HA
+          replicaCount: 2
+          
+          # Anti-affinity for distribution
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: ingress-nginx
+                      app.kubernetes.io/component: controller
+                  topologyKey: kubernetes.io/hostname
+          
+          # Metrics for Prometheus
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+              namespace: monitoring
+              additionalLabels:
+                prometheus: kube-prometheus
+          
+          # Config options
+          config:
+            proxy-body-size: "50m"
+            proxy-read-timeout: "600"
+            proxy-send-timeout: "600"
+            use-forwarded-headers: "true"
+            compute-full-forwarded-for: "true"
+            use-proxy-protocol: "false"
+            
+          # HPA
+          autoscaling:
+            enabled: true
+            minReplicas: 2
+            maxReplicas: 5
+            targetCPUUtilizationPercentage: 80
+            targetMemoryUtilizationPercentage: 80
+            
+          # PodDisruptionBudget
+          podDisruptionBudget:
+            enabled: true
+            minAvailable: 1
+            
+          # Probes
+          livenessProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+            
+        # Default backend
+        defaultBackend:
+          enabled: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 20Mi
+            limits:
+              cpu: 50m
+              memory: 50Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ingress-nginx
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  revisionHistoryLimit: 10

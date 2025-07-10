@@ -1,0 +1,13 @@
+# infrastructure/ansible/roles/common/handlers/main.yml
+# Обработчики для роли common
+
+---
+- name: restart sshd
+  systemd:
+    name: sshd
+    state: restarted
+
+- name: restart rsyslog
+  systemd:
+    name: rsyslog
+    state: restarted

@@ -1,0 +1,160 @@
+# infrastructure/ansible/roles/kubernetes/tasks/main.yml
+# Подготовка системы для Kubernetes
+
+---
+# Проверка архитектуры
+- name: Check system architecture
+  assert:
+    that:
+      - ansible_architecture == "x86_64"
+    fail_msg: "This playbook supports only x86_64 architecture"
+
+# Отключение swap
+- name: Disable swap
+  command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+
+- name: Remove swap from fstab
+  mount:
+    path: swap
+    fstype: swap
+    state: absent
+
+- name: Remove swap file
+  file:
+    path: /swapfile
+    state: absent
+
+# Загрузка модулей ядра
+- name: Load required kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+    - ip_vs
+    - ip_vs_rr
+    - ip_vs_wrr
+    - ip_vs_sh
+    - nf_conntrack
+
+- name: Persist kernel modules
+  copy:
+    dest: /etc/modules-load.d/kubernetes.conf
+    content: |
+      overlay
+      br_netfilter
+      ip_vs
+      ip_vs_rr
+      ip_vs_wrr
+      ip_vs_sh
+      nf_conntrack
+
+# Настройка sysctl
+- name: Configure sysctl for Kubernetes
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+  loop:
+    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { name: 'net.ipv4.ip_forward', value: '1' }
+    - { name: 'net.ipv4.tcp_syncookies', value: '1' }
+    - { name: 'net.ipv4.tcp_max_syn_backlog', value: '8192' }
+    - { name: 'net.core.somaxconn', value: '65535' }
+    - { name: 'net.ipv4.ip_local_port_range', value: '1024 65535' }
+    - { name: 'net.ipv4.tcp_tw_reuse', value: '1' }
+    - { name: 'net.ipv4.tcp_fin_timeout', value: '30' }
+    - { name: 'net.core.rmem_default', value: '31457280' }
+    - { name: 'net.core.rmem_max', value: '134217728' }
+    - { name: 'net.core.wmem_default', value: '31457280' }
+    - { name: 'net.core.wmem_max', value: '134217728' }
+    - { name: 'net.core.netdev_max_backlog', value: '5000' }
+    - { name: 'net.ipv4.tcp_rmem', value: '4096 87380 134217728' }
+    - { name: 'net.ipv4.tcp_wmem', value: '4096 65536 134217728' }
+    - { name: 'net.ipv4.tcp_congestion_control', value: 'bbr' }
+    - { name: 'fs.inotify.max_user_instances', value: '8192' }
+    - { name: 'fs.inotify.max_user_watches', value: '524288' }
+    - { name: 'fs.file-max', value: '2097152' }
+    - { name: 'vm.max_map_count', value: '262144' }
+    - { name: 'vm.swappiness', value: '0' }
+    - { name: 'vm.overcommit_memory', value: '1' }
+    - { name: 'vm.panic_on_oom', value: '0' }
+    - { name: 'kernel.panic', value: '10' }
+    - { name: 'kernel.panic_on_oops', value: '1' }
+
+# Настройка лимитов
+- name: Configure system limits
+  blockinfile:
+    path: /etc/security/limits.conf
+    block: |
+      * soft nofile 1048576
+      * hard nofile 1048576
+      * soft nproc 65536
+      * hard nproc 65536
+      * soft memlock unlimited
+      * hard memlock unlimited
+      root soft nofile 1048576
+      root hard nofile 1048576
+      root soft nproc 65536
+      root hard nproc 65536
+      root soft memlock unlimited
+      root hard memlock unlimited
+
+- name: Configure systemd limits
+  copy:
+    dest: /etc/systemd/system.conf.d/limits.conf
+    content: |
+      [Manager]
+      DefaultLimitNOFILE=1048576
+      DefaultLimitNPROC=65536
+      DefaultLimitMEMLOCK=infinity
+
+# Установка необходимых пакетов
+- name: Install Kubernetes dependencies
+  apt:
+    name:
+      - socat
+      - conntrack
+      - ipset
+      - ipvsadm
+      - ethtool
+      - net-tools
+      - bridge-utils
+      - ebtables
+    state: present
+
+# Создание директорий
+- name: Create Kubernetes directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/kubernetes
+    - /etc/kubernetes/manifests
+    - /etc/kubernetes/pki
+    - /var/lib/kubelet
+    - /var/lib/etcd
+    - /opt/cni/bin
+    - /etc/cni/net.d
+
+# Настройка journald для контейнеров
+- name: Configure journald for containers
+  lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^#?RateLimitInterval', line: 'RateLimitInterval=30s' }
+    - { regexp: '^#?RateLimitBurst', line: 'RateLimitBurst=1000' }
+    - { regexp: '^#?SystemMaxUse', line: 'SystemMaxUse=2G' }
+    - { regexp: '^#?SystemKeepFree', line: 'SystemKeepFree=1G' }
+    - { regexp: '^#?SystemMaxFileSize', line: 'SystemMaxFileSize=100M' }
+    - { regexp: '^#?MaxRetentionSec', line: 'MaxRetentionSec=7day' }
+  notify: restart journald

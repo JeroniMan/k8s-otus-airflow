@@ -1,0 +1,8 @@
+# infrastructure/ansible/roles/kubernetes/handlers/main.yml
+# Обработчики для роли kubernetes
+
+---
+- name: restart journald
+  systemd:
+    name: systemd-journald
+    state: restarted

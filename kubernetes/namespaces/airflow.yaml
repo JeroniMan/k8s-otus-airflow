@@ -1,0 +1,82 @@
+# kubernetes/namespaces/airflow.yaml
+# Namespace для Apache Airflow
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: airflow
+  labels:
+    name: airflow
+    app.kubernetes.io/name: airflow
+    app.kubernetes.io/part-of: airflow
+    environment: production
+
+---
+# ResourceQuota для контроля ресурсов
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: airflow-quota
+  namespace: airflow
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: "40Gi"
+    limits.cpu: "40"
+    limits.memory: "80Gi"
+    persistentvolumeclaims: "10"
+    services: "10"
+
+---
+# LimitRange для дефолтных лимитов подов
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: airflow-limitrange
+  namespace: airflow
+spec:
+  limits:
+  - default:
+      cpu: "1"
+      memory: "2Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+    type: Container
+  - max:
+      storage: "10Gi"
+    type: PersistentVolumeClaim
+
+---
+# NetworkPolicy для безопасности (разрешаем весь трафик внутри namespace)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: airflow-network-policy
+  namespace: airflow
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: airflow
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  egress:
+  - to:
+    - namespaceSelector: {}
+  - to:
+    - podSelector: {}
+  - ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53

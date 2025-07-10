@@ -1,0 +1,18 @@
+# monitoring/.gitignore
+
+# Временные файлы
+*.tmp
+*.bak
+*.swp
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Локальные дашборды для тестирования
+*-local.json
+*.local.json
+
+# Экспортированные дашборды с секретами
+*-export.json

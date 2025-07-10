@@ -1,0 +1,187 @@
+# infrastructure/terraform/cloud-init.yaml
+# Cloud-init конфигурация для начальной настройки VM
+
+#cloud-config
+hostname: ${hostname}
+manage_etc_hosts: true
+preserve_hostname: false
+
+# Обновление системы при запуске
+package_update: true
+package_upgrade: false
+
+# Установка необходимых пакетов
+packages:
+  # Базовые утилиты
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - software-properties-common
+  - git
+  - htop
+  - iotop
+  - net-tools
+  - vim
+  - wget
+  - jq          # Добавляем jq
+  - unzip
+  - tar
+
+  # Python и pip
+  - python3
+  - python3-pip
+
+  # Для работы с дисками и NFS
+  - nfs-common
+  - nfs4-acl-tools
+  - nfs-kernel-server
+
+  # Мониторинг и отладка
+  - sysstat
+  - iftop
+  - tcpdump
+  - dnsutils
+  - telnet
+
+  # Для Kubernetes
+  - socat
+  - conntrack
+  - ipset
+
+# Настройка системы
+runcmd:
+  - systemctl stop unattended-upgrades
+  - systemctl disable unattended-upgrades
+  # Убиваем если все еще работает
+  - killall -9 apt apt-get dpkg 2>/dev/null || true
+  # Отключаем swap (требование Kubernetes)
+  - swapoff -a
+  - sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+  # Настройка журналов systemd
+  - mkdir -p /var/log/journal
+  - systemctl restart systemd-journald
+
+  # Настройка времени
+  - timedatectl set-timezone Europe/Moscow
+  - timedatectl set-ntp true
+
+  # Увеличение лимитов системы
+  - |
+    cat >> /etc/security/limits.conf <<EOF
+    * soft nofile 65536
+    * hard nofile 65536
+    * soft nproc 65536
+    * hard nproc 65536
+    EOF
+
+  # Настройка sysctl для Kubernetes
+  - |
+    cat >> /etc/sysctl.d/99-kubernetes.conf <<EOF
+    # Сетевые настройки для Kubernetes
+    net.bridge.bridge-nf-call-iptables = 1
+    net.bridge.bridge-nf-call-ip6tables = 1
+    net.ipv4.ip_forward = 1
+    
+    # Оптимизация сети
+    net.core.rmem_max = 134217728
+    net.core.wmem_max = 134217728
+    net.ipv4.tcp_rmem = 4096 87380 134217728
+    net.ipv4.tcp_wmem = 4096 65536 134217728
+    net.core.netdev_max_backlog = 5000
+    
+    # Защита от SYN flood
+    net.ipv4.tcp_syncookies = 1
+    net.ipv4.tcp_max_syn_backlog = 4096
+    
+    # Увеличение количества соединений
+    net.core.somaxconn = 65535
+    net.ipv4.tcp_max_tw_buckets = 1440000
+    
+    # Настройки для контейнеров
+    fs.inotify.max_user_instances = 8192
+    fs.inotify.max_user_watches = 524288
+    EOF
+
+  # Применяем настройки sysctl
+  - sysctl -p /etc/sysctl.d/99-kubernetes.conf
+
+  # Загрузка необходимых модулей ядра
+  - modprobe overlay
+  - modprobe br_netfilter
+
+  # Настройка автозагрузки модулей
+  - |
+    cat >> /etc/modules-load.d/kubernetes.conf <<EOF
+    overlay
+    br_netfilter
+    EOF
+
+  # Создание директорий для Kubernetes
+  - mkdir -p /etc/kubernetes/manifests
+  - mkdir -p /var/lib/kubelet
+  - mkdir -p /var/lib/etcd
+  - mkdir -p /opt/cni/bin
+
+  # Установка Docker (может пригодиться для отладки)
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+  - add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
+  - usermod -aG docker ubuntu
+  - systemctl enable docker
+  - systemctl start docker
+
+  # Настройка Docker daemon
+  - |
+    cat > /etc/docker/daemon.json <<EOF
+    {
+      "exec-opts": ["native.cgroupdriver=systemd"],
+      "log-driver": "json-file",
+      "log-opts": {
+        "max-size": "100m"
+      },
+      "storage-driver": "overlay2"
+    }
+    EOF
+  - systemctl restart docker
+
+  # Создание файла с информацией о роли ноды
+  - echo "ROLE=${role}" > /etc/node-role
+  - echo "HOSTNAME=${hostname}" >> /etc/node-role
+
+  # Настройка NFS (master будет NFS сервером для учебного проекта)
+  - |
+    if [ "${role}" = "master" ]; then
+      mkdir -p /srv/nfs/k8s
+      chmod 777 /srv/nfs/k8s
+      echo "/srv/nfs/k8s *(rw,sync,no_subtree_check,no_root_squash)" >> /etc/exports
+      systemctl enable nfs-kernel-server
+      systemctl restart nfs-kernel-server
+    fi
+
+  # Установка полезных Python пакетов
+  - pip3 install pyyaml requests
+
+# Настройка пользователей
+users:
+  - default
+  - name: ubuntu
+    groups: sudo, docker
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+
+# Финальное сообщение
+final_message: |
+  
+  ========================================
+  Kubernetes Node Configuration Complete!
+  ========================================
+  
+  Hostname: ${hostname}
+  Role: ${role}
+  
+  The system is ready after $UPTIME seconds
+  ========================================

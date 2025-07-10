@@ -1,0 +1,122 @@
+# .github/workflows/k8s-deploy.yml
+# CI/CD для установки Kubernetes кластера
+
+name: 'Kubernetes Setup'
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'install'
+        type: choice
+        options:
+          - install
+          - upgrade
+          - check
+  workflow_run:
+    workflows: ["Terraform Infrastructure"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  ANSIBLE_VERSION: '8.5.0'
+  ANSIBLE_HOST_KEY_CHECKING: 'False'
+
+jobs:
+  setup-k8s:
+    name: 'Setup Kubernetes'
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Ansible
+      run: |
+        pip install ansible==${{ env.ANSIBLE_VERSION }}
+        pip install jinja2
+        ansible-galaxy collection install community.general ansible.posix
+
+    - name: Download Ansible inventory
+      uses: dawidd6/action-download-artifact@v2
+      with:
+        workflow: terraform.yml
+        name: ansible-inventory
+        path: infrastructure/ansible/inventory/
+        search_artifacts: true
+        if_no_artifact_found: fail
+
+    - name: Create SSH key
+      run: |
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ssh_key
+        chmod 600 ssh_key
+
+    - name: Wait for servers
+      run: |
+        echo "Waiting for servers to be ready..."
+        cd infrastructure/ansible
+        ansible all \
+          -i inventory/hosts.yml \
+          --private-key=../../ssh_key \
+          -m wait_for_connection \
+          -a "delay=30 timeout=300"
+
+    - name: Run prepare-nodes playbook
+      run: |
+        cd infrastructure/ansible
+        ansible-playbook \
+          -i inventory/hosts.yml \
+          --private-key=../../ssh_key \
+          playbooks/prepare-nodes.yml \
+          -v
+
+    - name: Run install-k3s playbook
+      run: |
+        cd infrastructure/ansible
+        ansible-playbook \
+          -i inventory/hosts.yml \
+          --private-key=../../ssh_key \
+          playbooks/install-k3s.yml \
+          -v
+
+    - name: Get kubeconfig
+      run: |
+        MASTER_IP=$(grep -A2 'masters:' infrastructure/ansible/inventory/hosts.yml | grep 'ansible_host:' | head -1 | awk '{print $2}')
+        ssh -o StrictHostKeyChecking=no -i ssh_key ubuntu@$MASTER_IP 'sudo cat /etc/rancher/k3s/k3s.yaml' > kubeconfig
+        sed -i "s/127.0.0.1/$MASTER_IP/g" kubeconfig
+
+    - name: Upload kubeconfig
+      uses: actions/upload-artifact@v3
+      with:
+        name: kubeconfig
+        path: kubeconfig
+        retention-days: 7
+
+    - name: Test cluster
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        kubectl version
+        kubectl get nodes
+        kubectl get pods --all-namespaces
+
+    - name: Create summary
+      run: |
+        echo "## Kubernetes Cluster Ready! ✅" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Cluster Status:" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        export KUBECONFIG=$PWD/kubeconfig
+        kubectl get nodes >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Next step: Run Applications Deploy workflow" >> $GITHUB_STEP_SUMMARY

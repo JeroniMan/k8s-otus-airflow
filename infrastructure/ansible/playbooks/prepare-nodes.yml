@@ -1,0 +1,249 @@
+# infrastructure/ansible/playbooks/prepare-nodes.yml
+# Подготовка всех нод для установки Kubernetes
+
+---
+- name: Prepare all nodes for Kubernetes installation
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    # Проверка подключения
+    - name: Check connectivity
+      ping:
+
+    - name: Display node information
+      debug:
+        msg: |
+          Hostname: {{ inventory_hostname }}
+          Public IP: {{ ansible_host }}
+          Private IP: {{ internal_ip }}
+          Node Type: {{ node_type }}
+
+    # Обновление системы
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      when: ansible_os_family == "Debian"
+
+    # Установка базовых пакетов
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - vim
+          - htop
+          - iotop
+          - sysstat
+          - net-tools
+          - dnsutils
+          - tcpdump
+          - telnet
+          - python3-pip
+          - apt-transport-https
+          - ca-certificates
+          - software-properties-common
+          - gnupg
+          - lsb-release
+          - nfs-common
+          - open-iscsi
+          - socat
+          - conntrack
+          - ipset
+          - jq
+          - unzip
+        state: present
+
+    # Настройка времени
+    - name: Set timezone
+      timezone:
+        name: "{{ system_timezone | default('Europe/Moscow') }}"
+
+    - name: Enable NTP
+      systemd:
+        name: systemd-timesyncd
+        enabled: yes
+        state: started
+
+    # Отключение swap
+    - name: Disable swap
+      command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: Remove swap from fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '.*swap.*'
+        state: absent
+
+    # Настройка модулей ядра
+    - name: Load kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Persist kernel modules
+      copy:
+        dest: /etc/modules-load.d/kubernetes.conf
+        content: |
+          overlay
+          br_netfilter
+
+    # Настройка sysctl
+    - name: Configure sysctl for Kubernetes
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+        sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+      loop:
+        - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { key: 'net.ipv4.ip_forward', value: '1' }
+        - { key: 'net.ipv4.tcp_syncookies', value: '1' }
+        - { key: 'net.ipv4.tcp_max_syn_backlog', value: '4096' }
+        - { key: 'net.core.somaxconn', value: '65535' }
+        - { key: 'net.ipv4.tcp_max_tw_buckets', value: '1440000' }
+        - { key: 'fs.inotify.max_user_instances', value: '8192' }
+        - { key: 'fs.inotify.max_user_watches', value: '524288' }
+
+    # Настройка лимитов
+    - name: Configure system limits
+      blockinfile:
+        path: /etc/security/limits.conf
+        block: |
+          * soft nofile 65536
+          * hard nofile 65536
+          * soft nproc 65536
+          * hard nproc 65536
+          root soft nofile 65536
+          root hard nofile 65536
+          root soft nproc 65536
+          root hard nproc 65536
+
+    # Отключение firewall (для учебного проекта)
+    - name: Disable UFW firewall
+      systemd:
+        name: ufw
+        enabled: no
+        state: stopped
+      ignore_errors: yes
+
+    # Настройка journald
+    - name: Configure journald
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: '^#?SystemMaxUse=', line: 'SystemMaxUse=1G' }
+        - { regexp: '^#?SystemKeepFree=', line: 'SystemKeepFree=1G' }
+        - { regexp: '^#?SystemMaxFileSize=', line: 'SystemMaxFileSize=100M' }
+      notify: restart journald
+
+    # Создание директорий
+    - name: Create necessary directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/kubernetes
+        - /etc/kubernetes/manifests
+        - /var/lib/kubelet
+        - /var/lib/etcd
+        - /opt/cni/bin
+
+    # Установка Docker (для отладки)
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Enable and start Docker
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    # Настройка Docker daemon
+    - name: Configure Docker daemon
+      copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "exec-opts": ["native.cgroupdriver=systemd"],
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "100m",
+              "max-file": "3"
+            },
+            "storage-driver": "overlay2"
+          }
+      notify: restart docker
+
+    # Очистка
+    - name: Clean package cache
+      apt:
+        autoclean: yes
+        autoremove: yes
+
+    # Перезагрузка если нужно
+    - name: Check if reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot if required
+      reboot:
+        msg: "Reboot initiated by Ansible for kernel updates"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime
+      when: reboot_required.stat.exists
+
+  handlers:
+    - name: restart journald
+      systemd:
+        name: systemd-journald
+        state: restarted
+
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted

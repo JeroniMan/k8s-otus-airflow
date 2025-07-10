@@ -1,0 +1,207 @@
+# .github/workflows/terraform.yml
+# CI/CD для управления инфраструктурой через Terraform
+
+name: 'Terraform Infrastructure'
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/terraform/**'
+      - '.github/workflows/terraform.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/terraform/**'
+      - '.github/workflows/terraform.yml'
+
+env:
+  TF_VERSION: '1.6.0'
+  YC_SERVICE_ACCOUNT_KEY_FILE: ${{ secrets.YC_SERVICE_ACCOUNT_KEY }}
+
+jobs:
+  terraform-check:
+    name: 'Terraform Check'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check -recursive
+      working-directory: ./infrastructure/terraform
+      continue-on-error: true
+
+    - name: Post Format Check Comment
+      if: github.event_name == 'pull_request' && steps.fmt.outcome == 'failure'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '❌ Terraform files are not properly formatted. Run `terraform fmt -recursive` to fix.'
+          })
+
+    - name: Create credentials
+      run: |
+        echo "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" > key.json
+
+    - name: Terraform Init
+      run: |
+        terraform init -backend=false
+      working-directory: ./infrastructure/terraform
+
+    - name: Terraform Validate
+      run: terraform validate
+      working-directory: ./infrastructure/terraform
+
+  terraform-plan:
+    name: 'Terraform Plan'
+    runs-on: ubuntu-latest
+    needs: terraform-check
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Create credentials
+      run: |
+        echo "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" > key.json
+        echo "YC_SERVICE_ACCOUNT_KEY_FILE=$PWD/key.json" >> $GITHUB_ENV
+
+    - name: Create tfvars
+      run: |
+        cat > terraform.tfvars <<EOF
+        yc_cloud_id  = "${{ secrets.YC_CLOUD_ID }}"
+        yc_folder_id = "${{ secrets.YC_FOLDER_ID }}"
+        ssh_public_key_path = "./ssh_key.pub"
+        EOF
+      working-directory: ./infrastructure/terraform
+
+    - name: Create SSH key
+      run: |
+        echo "${{ secrets.SSH_PUBLIC_KEY }}" > ssh_key.pub
+      working-directory: ./infrastructure/terraform
+
+    - name: Terraform Init
+      run: terraform init
+      working-directory: ./infrastructure/terraform
+
+    - name: Terraform Plan
+      id: plan
+      run: |
+        terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+      working-directory: ./infrastructure/terraform
+      continue-on-error: true
+
+    - name: Post Plan Comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const planOutput = fs.readFileSync('./infrastructure/terraform/plan_output.txt', 'utf8');
+          const truncated = planOutput.length > 65000 ? planOutput.substring(0, 65000) + '\n\n... (truncated)' : planOutput;
+          
+          const output = `### Terraform Plan 📋
+          
+          <details>
+          <summary>Show Plan</summary>
+          
+          \`\`\`terraform
+          ${truncated}
+          \`\`\`
+          
+          </details>
+          
+          **Plan Status**: ${{ steps.plan.outcome }}`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+
+  terraform-apply:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    needs: terraform-check
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Create credentials
+      run: |
+        echo "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" > key.json
+        echo "YC_SERVICE_ACCOUNT_KEY_FILE=$PWD/key.json" >> $GITHUB_ENV
+
+    - name: Create tfvars
+      run: |
+        cat > terraform.tfvars <<EOF
+        yc_cloud_id  = "${{ secrets.YC_CLOUD_ID }}"
+        yc_folder_id = "${{ secrets.YC_FOLDER_ID }}"
+        ssh_public_key_path = "./ssh_key.pub"
+        EOF
+      working-directory: ./infrastructure/terraform
+
+    - name: Create SSH key
+      run: |
+        echo "${{ secrets.SSH_PUBLIC_KEY }}" > ssh_key.pub
+      working-directory: ./infrastructure/terraform
+
+    - name: Terraform Init
+      run: terraform init
+      working-directory: ./infrastructure/terraform
+
+    - name: Terraform Apply
+      run: terraform apply -auto-approve
+      working-directory: ./infrastructure/terraform
+
+    - name: Save outputs
+      id: outputs
+      run: |
+        echo "master_ip=$(terraform output -raw master_ips | jq -r '.["master-0"].public_ip')" >> $GITHUB_OUTPUT
+        echo "lb_ip=$(terraform output -raw load_balancer_ip)" >> $GITHUB_OUTPUT
+      working-directory: ./infrastructure/terraform
+
+    - name: Upload Ansible inventory
+      uses: actions/upload-artifact@v3
+      with:
+        name: ansible-inventory
+        path: infrastructure/ansible/inventory/hosts.yml
+        retention-days: 7
+
+    - name: Create summary
+      run: |
+        echo "## Infrastructure Deployed 🚀" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Master IP**: ${{ steps.outputs.outputs.master_ip }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Load Balancer IP**: ${{ steps.outputs.outputs.lb_ip }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Next step: Run Kubernetes Setup workflow" >> $GITHUB_STEP_SUMMARY

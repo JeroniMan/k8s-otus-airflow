@@ -1,0 +1,36 @@
+# kubernetes/.gitignore
+
+# Секреты (НИКОГДА не коммитить!)
+**/secrets.yaml
+**/secret.yaml
+**/*-secret.yaml
+**/*-secrets.yaml
+**/secrets-*.yaml
+
+# Приватные ключи
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Kubeconfig файлы
+kubeconfig*
+*.kubeconfig
+
+# Helm
+**/charts/*.tgz
+**/requirements.lock
+
+# Временные файлы
+*.tmp
+*.bak
+*.swp
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Локальные values для тестирования
+**/values-local.yaml
+**/values.local.yaml

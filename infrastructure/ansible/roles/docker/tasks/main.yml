@@ -1,0 +1,143 @@
+# infrastructure/ansible/roles/docker/tasks/main.yml
+# Установка и настройка Docker
+
+---
+# Удаление старых версий
+- name: Remove old Docker packages
+  apt:
+    name:
+      - docker
+      - docker-engine
+      - docker.io
+      - containerd
+      - runc
+    state: absent
+
+# Установка зависимостей
+- name: Install Docker dependencies
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: yes
+
+# Добавление Docker GPG ключа
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+# Добавление Docker репозитория
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    update_cache: yes
+
+# Установка Docker
+- name: Install Docker packages
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+
+# Создание директории для конфигурации
+- name: Create Docker config directory
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+# Настройка Docker daemon
+- name: Configure Docker daemon
+  copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "exec-opts": ["native.cgroupdriver=systemd"],
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "100m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2",
+        "storage-opts": [
+          "overlay2.override_kernel_check=true"
+        ],
+        "bip": "172.17.0.1/16",
+        "default-address-pools": [
+          {
+            "base": "172.80.0.0/16",
+            "size": 24
+          }
+        ],
+        "registry-mirrors": [],
+        "insecure-registries": [],
+        "debug": false,
+        "experimental": false,
+        "features": {
+          "buildkit": true
+        },
+        "metrics-addr": "0.0.0.0:9323"
+      }
+  notify: restart docker
+
+# Создание директории для systemd
+- name: Create systemd directory for Docker
+  file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: '0755'
+
+# Настройка прокси для Docker (если нужно)
+- name: Configure Docker proxy
+  copy:
+    dest: /etc/systemd/system/docker.service.d/http-proxy.conf
+    content: |
+      [Service]
+      # Environment="HTTP_PROXY=http://proxy.example.com:80/"
+      # Environment="HTTPS_PROXY=http://proxy.example.com:80/"
+      # Environment="NO_PROXY=localhost,127.0.0.1"
+  when: false  # Включить если нужен прокси
+
+# Запуск и включение Docker
+- name: Start and enable Docker
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+# Добавление пользователей в группу docker
+- name: Add users to docker group
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: yes
+  loop:
+    - ubuntu
+  notify: restart docker
+
+# Установка docker-compose (standalone)
+- name: Install docker-compose
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/v2.23.3/docker-compose-linux-x86_64"
+    dest: /usr/local/bin/docker-compose
+    mode: '0755'
+
+# Проверка установки
+- name: Check Docker version
+  command: docker version
+  register: docker_version
+  changed_when: false
+
+- name: Display Docker version
+  debug:
+    msg: "{{ docker_version.stdout_lines }}"

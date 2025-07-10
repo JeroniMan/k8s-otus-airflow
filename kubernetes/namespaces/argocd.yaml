@@ -1,0 +1,84 @@
+# kubernetes/namespaces/argocd.yaml
+# Namespace для ArgoCD
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    name: argocd
+    app.kubernetes.io/name: argocd
+    app.kubernetes.io/part-of: argocd
+    environment: production
+
+---
+# ResourceQuota для контроля ресурсов
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: argocd-quota
+  namespace: argocd
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: "8Gi"
+    limits.cpu: "8"
+    limits.memory: "16Gi"
+    persistentvolumeclaims: "5"
+    services: "10"
+
+---
+# LimitRange для дефолтных лимитов подов
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: argocd-limitrange
+  namespace: argocd
+spec:
+  limits:
+  - default:
+      cpu: "500m"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+    type: Container
+
+---
+# NetworkPolicy для ArgoCD
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-network-policy
+  namespace: argocd
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: argocd
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+  egress:
+  - to:
+    - namespaceSelector: {}  # ArgoCD должен иметь доступ ко всем namespaces
+  - to:
+    - podSelector: {}
+  - ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  - ports:  # Доступ к Kubernetes API
+    - protocol: TCP
+      port: 6443
+  - ports:  # Доступ к Git репозиториям
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 22

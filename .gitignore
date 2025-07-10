@@ -1,0 +1,133 @@
+# .gitignore
+# Корневой gitignore для всего проекта
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.tfplan
+terraform.tfvars
+*.auto.tfvars
+
+# Ansible
+*.retry
+ansible.log
+inventory/hosts.yml
+
+# Kubernetes
+kubeconfig*
+*.kubeconfig
+
+# Secrets and keys
+*.key
+*.pem
+*.p12
+*.pfx
+key.json
+*-key.json
+secrets.yaml
+secret.yaml
+*-secret.yaml
+*-secrets.yaml
+sealed-secrets-key.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+logs/
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+*.orig
+temp/
+tmp/
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Cache
+.cache/
+.ansible/
+__pycache__/
+.pytest_cache/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Credentials
+credentials/
+.aws/
+.azure/
+.gcp/
+
+# Local configuration
+local.yaml
+local.yml
+*-local.yaml
+*-local.yml
+values-local.yaml
+
+# Generated files
+generated/
+output/
+
+# Backup files
+backup/
+backups/
+*.backup
+
+# ArgoCD
+argocd-password.txt
+
+# Certificates
+*.crt
+*.csr
+*.key
+*.p12
+*.pfx
+
+# Helm
+**/charts/*.tgz
+**/requirements.lock

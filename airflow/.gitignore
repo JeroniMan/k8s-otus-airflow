@@ -1,0 +1,44 @@
+# airflow/.gitignore
+
+# Airflow
+airflow.db
+airflow.cfg
+webserver_config.py
+unittests.cfg
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Temporary
+*.tmp
+*.bak

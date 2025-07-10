@@ -1,0 +1,27 @@
+# scripts/development/sync-dags.sh
+#!/bin/bash
+
+set -e
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/validation.sh"
+
+log STEP "Синхронизация DAGs"
+
+# Проверка git
+if ! git diff --quiet HEAD -- "${PROJECT_ROOT}/airflow/dags/"; then
+    log WARN "Есть незакоммиченные изменения в DAGs"
+    read -p "Продолжить? (y/n): " confirm
+    if [ "$confirm" != "y" ]; then
+        exit 0
+    fi
+fi
+
+# Коммит и push
+log INFO "Отправка изменений в Git..."
+git add "${PROJECT_ROOT}/airflow/dags/"
+git commit -m "Update DAGs" || log INFO "Нет изменений для коммита"
+git push || log WARN "Не удалось отправить изменения"
+
+# Git-sync в Airflow подхватит изменения автоматически
+log INFO "Git-sync синхронизирует DAGs каждые 60 секунд"
+log SUCCESS "DAGs будут обновлены автоматически"

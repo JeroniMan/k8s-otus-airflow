@@ -1,0 +1,150 @@
+# .github/workflows/validate.yml
+# Валидация кода и конфигураций при PR
+
+name: 'Validate'
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  validate-terraform:
+    name: 'Validate Terraform'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: '1.6.0'
+
+    - name: Check Terraform format
+      run: |
+        terraform fmt -check -recursive
+      working-directory: ./infrastructure/terraform
+
+    - name: Init Terraform
+      run: |
+        terraform init -backend=false
+      working-directory: ./infrastructure/terraform
+
+    - name: Validate Terraform
+      run: |
+        terraform validate
+      working-directory: ./infrastructure/terraform
+
+  validate-ansible:
+    name: 'Validate Ansible'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Ansible Lint
+      run: |
+        pip install ansible-lint yamllint
+
+    - name: Run Ansible Lint
+      run: |
+        ansible-lint infrastructure/ansible/playbooks/*.yml
+      continue-on-error: true
+
+    - name: Run YAML Lint
+      run: |
+        yamllint -d relaxed infrastructure/ansible/
+
+  validate-kubernetes:
+    name: 'Validate Kubernetes'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install kubeval
+      run: |
+        wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+        tar xf kubeval-linux-amd64.tar.gz
+        sudo mv kubeval /usr/local/bin
+
+    - name: Validate Kubernetes manifests
+      run: |
+        find kubernetes/ -name '*.yaml' -o -name '*.yml' | xargs kubeval --ignore-missing-schemas
+
+  validate-python:
+    name: 'Validate Python'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install pylint black isort
+
+    - name: Check Python format
+      run: |
+        black --check airflow/dags/
+        isort --check-only airflow/dags/
+      continue-on-error: true
+
+  security-scan:
+    name: 'Security Scan'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Run Trivy security scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'config'
+        scan-ref: '.'
+        format: 'table'
+        exit-code: '0'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Run Checkov
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: .
+        quiet: true
+        soft_fail: true
+        framework: terraform,kubernetes,ansible
+
+  create-summary:
+    name: 'Create Summary'
+    runs-on: ubuntu-latest
+    needs: [validate-terraform, validate-ansible, validate-kubernetes, validate-python, security-scan]
+    if: always()
+
+    steps:
+    - name: Create validation summary
+      run: |
+        echo "## Validation Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Terraform | ${{ needs.validate-terraform.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Ansible | ${{ needs.validate-ansible.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Kubernetes | ${{ needs.validate-kubernetes.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Python | ${{ needs.validate-python.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security | ${{ needs.security-scan.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY

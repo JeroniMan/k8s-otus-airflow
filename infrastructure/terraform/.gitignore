@@ -1,0 +1,51 @@
+# infrastructure/terraform/.gitignore
+# Игнорируемые файлы для Terraform
+
+# Локальные файлы terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Файлы с планами
+*.tfplan
+tfplan
+
+# Файлы с переменными (могут содержать секреты)
+terraform.tfvars
+terraform.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Файлы с ключами
+key.json
+*.pem
+*.key
+ssh_key*
+
+# Файлы переопределения
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Временные файлы
+*.backup
+*.bak
+*.tmp
+.*.swp
+.DS_Store
+
+# Логи
+*.log
+crash.log
+crash.*.log
+
+# IDE файлы
+.idea
+.vscode
+*.iml
+
+# Сгенерированные файлы
+.terraformrc
+terraform.rc

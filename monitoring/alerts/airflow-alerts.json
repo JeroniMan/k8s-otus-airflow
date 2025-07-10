@@ -1,0 +1,109 @@
+# monitoring/alerts/airflow-alerts.yaml
+# Prometheus алерты для Apache Airflow
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+data:
+  airflow.rules.yaml: |
+    groups:
+    - name: airflow
+      interval: 30s
+      rules:
+
+      # Scheduler не работает
+      - alert: AirflowSchedulerDown
+        expr: up{job="airflow-scheduler"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: airflow
+        annotations:
+          summary: "Airflow Scheduler is down"
+          description: "Airflow Scheduler has been down for more than 5 minutes"
+
+      # Webserver не работает
+      - alert: AirflowWebserverDown
+        expr: up{job="airflow-webserver"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: airflow
+        annotations:
+          summary: "Airflow Webserver is down"
+          description: "Airflow Webserver has been down for more than 5 minutes"
+
+      # Нет доступных воркеров
+      - alert: AirflowNoWorkersAvailable
+        expr: sum(up{job="airflow-worker"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: airflow
+        annotations:
+          summary: "No Airflow workers available"
+          description: "All Airflow workers are down"
+
+      # Высокий процент неудачных задач
+      - alert: AirflowHighTaskFailureRate
+        expr: |
+          (
+            sum(rate(airflow_task_failed_total[5m])) by (dag_id)
+            /
+            sum(rate(airflow_task_success_total[5m]) + rate(airflow_task_failed_total[5m])) by (dag_id)
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: airflow
+        annotations:
+          summary: "High task failure rate for DAG {{ $labels.dag_id }}"
+          description: "More than 10% of tasks are failing for DAG {{ $labels.dag_id }}"
+
+      # Scheduler heartbeat отсутствует
+      - alert: AirflowSchedulerHeartbeatMissing
+        expr: time() - airflow_scheduler_heartbeat > 60
+        for: 5m
+        labels:
+          severity: critical
+          component: airflow
+        annotations:
+          summary: "Airflow Scheduler heartbeat is missing"
+          description: "Airflow Scheduler has not sent a heartbeat for more than 60 seconds"
+
+      # Слишком много задач в очереди
+      - alert: AirflowHighQueuedTasks
+        expr: airflow_pool_queued_tasks > 100
+        for: 15m
+        labels:
+          severity: warning
+          component: airflow
+        annotations:
+          summary: "High number of queued tasks"
+          description: "More than 100 tasks are queued for execution"
+
+      # База данных недоступна
+      - alert: AirflowDatabaseDown
+        expr: up{job="airflow-postgresql"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: airflow
+        annotations:
+          summary: "Airflow database is down"
+          description: "PostgreSQL database for Airflow is not responding"
+
+      # Redis недоступен
+      - alert: AirflowRedisDown
+        expr: up{job="airflow-redis"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: airflow
+        annotations:
+          summary: "Airflow Redis is down"
+          description: "Redis for Airflow Celery backend is not responding"

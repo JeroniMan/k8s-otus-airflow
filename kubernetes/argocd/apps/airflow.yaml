@@ -1,0 +1,132 @@
+# kubernetes/argocd/apps/airflow-final.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airflow
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: production
+
+  source:
+    repoURL: https://airflow-helm.github.io/charts
+    targetRevision: 8.8.0
+    chart: airflow
+    helm:
+      releaseName: airflow
+      values: |
+        # Базовые настройки Airflow
+        airflow:
+          image:
+            repository: apache/airflow
+            tag: 2.8.1
+            
+          # Используем KubernetesExecutor для простоты
+          executor: KubernetesExecutor
+          
+          config:
+            AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
+            AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+            
+          # Создаём пользователя admin
+          users:
+          - username: admin
+            password: admin
+            role: Admin
+            email: admin@example.com
+            firstName: Admin
+            lastName: User
+            
+        # Scheduler
+        scheduler:
+          enabled: true
+          replicas: 1
+          # Важно: отключаем logCleanup если используем persistence
+          logCleanup:
+            enabled: false
+            
+        # Web
+        web:
+          enabled: true
+          replicas: 1
+          service:
+            type: ClusterIP
+            
+        # Workers не нужны для KubernetesExecutor
+        workers:
+          enabled: false
+          
+        # Flower не нужен для KubernetesExecutor
+        flower:
+          enabled: false
+          
+        # PostgreSQL
+        postgresql:
+          enabled: true
+          auth:
+            postgresPassword: postgres
+            password: airflow
+            username: airflow
+            database: airflow
+          persistence:
+            enabled: true
+            size: 8Gi
+            storageClass: local-path
+            
+        # Redis не нужен для KubernetesExecutor
+        redis:
+          enabled: false
+          
+        # DAGs - пока без git sync
+        dags:
+          persistence:
+            enabled: false
+          gitSync:
+            enabled: false
+            
+        # Logs
+        logs:
+          persistence:
+            enabled: false
+            
+        # Ingress
+        ingress:
+          enabled: true
+          web:
+            host: ""
+            path: ""  # Пустая строка вместо "/"
+            tls:
+              enabled: false
+            annotations:
+              kubernetes.io/ingress.class: nginx
+              
+        # ServiceAccount
+        serviceAccount:
+          create: true
+          name: airflow
+          
+        # Безопасность
+        securityContext:
+          fsGroup: 50000
+          runAsUser: 50000
+          runAsGroup: 50000
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: airflow
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  revisionHistoryLimit: 10

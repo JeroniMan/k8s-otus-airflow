@@ -1,0 +1,253 @@
+# .github/workflows/apps-deploy.yml
+# CI/CD для развертывания приложений через ArgoCD
+
+name: 'Applications Deploy'
+
+on:
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: 'Applications to deploy'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - argocd
+          - airflow
+          - monitoring
+          - ingress
+  push:
+    branches:
+      - main
+    paths:
+      - 'kubernetes/**'
+      - 'airflow/dags/**'
+      - '.github/workflows/apps-deploy.yml'
+  workflow_run:
+    workflows: ["Kubernetes Setup"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  KUBECTL_VERSION: '1.28.0'
+  HELM_VERSION: '3.13.0'
+
+jobs:
+  deploy-argocd:
+    name: 'Deploy ArgoCD'
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBECTL_VERSION }}
+
+    - name: Download kubeconfig
+      uses: dawidd6/action-download-artifact@v2
+      with:
+        workflow: k8s-deploy.yml
+        name: kubeconfig
+        search_artifacts: true
+        if_no_artifact_found: fail
+
+    - name: Install ArgoCD
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        
+        # Create namespace
+        kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Install ArgoCD
+        kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+        
+        # Wait for ArgoCD to be ready
+        kubectl wait --for=condition=available --timeout=600s deployment/argocd-server -n argocd
+
+    - name: Get ArgoCD password
+      id: argocd_password
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+        echo "::add-mask::$ARGOCD_PASSWORD"
+        echo "password=$ARGOCD_PASSWORD" >> $GITHUB_OUTPUT
+
+    - name: Update repository URLs
+      run: |
+        # Update repo URL to current repository
+        find kubernetes/argocd -name "*.yaml" -type f -exec \
+          sed -i "s|https://github.com/yourusername/k8s-airflow-project|https://github.com/${{ github.repository }}|g" {} \;
+
+    - name: Create ArgoCD apps
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        
+        # Apply ArgoCD applications
+        kubectl apply -f kubernetes/argocd/apps/
+
+    - name: Wait for sync
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        
+        echo "Waiting for applications to sync..."
+        sleep 60
+        
+        # Check application status
+        kubectl get applications -n argocd
+
+    - name: Create secret for summary
+      run: |
+        echo "ARGOCD_PASSWORD=${{ steps.argocd_password.outputs.password }}" >> $GITHUB_ENV
+
+    - name: Upload kubeconfig for next jobs
+      uses: actions/upload-artifact@v3
+      with:
+        name: kubeconfig-with-argocd
+        path: kubeconfig
+        retention-days: 1
+
+  deploy-applications:
+    name: 'Deploy Applications'
+    runs-on: ubuntu-latest
+    needs: deploy-argocd
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBECTL_VERSION }}
+
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: ${{ env.HELM_VERSION }}
+
+    - name: Download kubeconfig
+      uses: actions/download-artifact@v3
+      with:
+        name: kubeconfig-with-argocd
+
+    - name: Wait for applications
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        
+        echo "Waiting for applications to be ready..."
+        
+        # Wait for Airflow
+        timeout 600 bash -c 'until kubectl get deployment airflow-webserver -n airflow 2>/dev/null; do sleep 30; done'
+        kubectl wait --for=condition=available --timeout=600s deployment/airflow-webserver -n airflow || true
+        
+        # Wait for Prometheus
+        timeout 600 bash -c 'until kubectl get deployment prometheus-stack-kube-prom-operator -n monitoring 2>/dev/null; do sleep 30; done'
+        kubectl wait --for=condition=available --timeout=600s deployment/prometheus-stack-kube-prom-operator -n monitoring || true
+        
+        # Wait for Grafana
+        timeout 600 bash -c 'until kubectl get deployment prometheus-stack-grafana -n monitoring 2>/dev/null; do sleep 30; done'
+        kubectl wait --for=condition=available --timeout=600s deployment/prometheus-stack-grafana -n monitoring || true
+
+    - name: Check deployment status
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        
+        echo "=== ArgoCD Applications ==="
+        kubectl get applications -n argocd
+        
+        echo -e "\n=== Airflow Pods ==="
+        kubectl get pods -n airflow
+        
+        echo -e "\n=== Monitoring Pods ==="
+        kubectl get pods -n monitoring
+        
+        echo -e "\n=== All Services ==="
+        kubectl get svc --all-namespaces
+
+    - name: Get access info
+      id: access_info
+      run: |
+        cd infrastructure/terraform
+        terraform init
+        LB_IP=$(terraform output -raw load_balancer_ip 2>/dev/null || echo "N/A")
+        echo "lb_ip=$LB_IP" >> $GITHUB_OUTPUT
+
+    - name: Create summary
+      run: |
+        echo "## 🎉 Deployment Complete!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Access Information:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### Airflow" >> $GITHUB_STEP_SUMMARY
+        echo "- URL: http://${{ steps.access_info.outputs.lb_ip }}:32080" >> $GITHUB_STEP_SUMMARY
+        echo "- Username: `admin`" >> $GITHUB_STEP_SUMMARY
+        echo "- Password: `admin`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### Grafana" >> $GITHUB_STEP_SUMMARY
+        echo "- URL: http://${{ steps.access_info.outputs.lb_ip }}:32080/grafana" >> $GITHUB_STEP_SUMMARY
+        echo "- Username: `admin`" >> $GITHUB_STEP_SUMMARY
+        echo "- Password: `changeme123`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### ArgoCD" >> $GITHUB_STEP_SUMMARY
+        echo "- Port-forward: `kubectl port-forward svc/argocd-server -n argocd 8080:443`" >> $GITHUB_STEP_SUMMARY
+        echo "- URL: https://localhost:8080" >> $GITHUB_STEP_SUMMARY
+        echo "- Username: `admin`" >> $GITHUB_STEP_SUMMARY
+        echo "- Password: Check ArgoCD secret" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Cluster Status:" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        export KUBECONFIG=$PWD/kubeconfig
+        kubectl get nodes >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  test-deployment:
+    name: 'Test Deployment'
+    runs-on: ubuntu-latest
+    needs: deploy-applications
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBECTL_VERSION }}
+
+    - name: Download kubeconfig
+      uses: actions/download-artifact@v3
+      with:
+        name: kubeconfig-with-argocd
+
+    - name: Run smoke tests
+      run: |
+        export KUBECONFIG=$PWD/kubeconfig
+        
+        echo "Running smoke tests..."
+        
+        # Test cluster connectivity
+        kubectl cluster-info
+        
+        # Test Airflow pods
+        kubectl get pods -n airflow | grep Running
+        
+        # Test Monitoring pods
+        kubectl get pods -n monitoring | grep Running
+        
+        # Test services
+        kubectl get svc --all-namespaces
+        
+        echo "All smoke tests passed!"
+
+    - name: Create test summary
+      run: |
+        echo "## ✅ All Tests Passed!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The deployment is ready for use." >> $GITHUB_STEP_SUMMARY

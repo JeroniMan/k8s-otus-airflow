@@ -1,0 +1,92 @@
+# .github/workflows/destroy.yml
+# Workflow для удаления всей инфраструктуры
+
+name: 'Destroy Infrastructure'
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+        type: string
+
+env:
+  TF_VERSION: '1.6.0'
+
+jobs:
+  confirm-destroy:
+    name: 'Confirm Destroy'
+    runs-on: ubuntu-latest
+    outputs:
+      confirmed: ${{ steps.check.outputs.confirmed }}
+
+    steps:
+    - name: Check confirmation
+      id: check
+      run: |
+        if [ "${{ github.event.inputs.confirm }}" == "destroy" ]; then
+          echo "confirmed=true" >> $GITHUB_OUTPUT
+          echo "✅ Destruction confirmed"
+        else
+          echo "confirmed=false" >> $GITHUB_OUTPUT
+          echo "❌ Confirmation failed. You must type 'destroy' to confirm."
+          exit 1
+        fi
+
+  destroy-infrastructure:
+    name: 'Destroy Infrastructure'
+    runs-on: ubuntu-latest
+    needs: confirm-destroy
+    if: needs.confirm-destroy.outputs.confirmed == 'true'
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Create credentials
+      run: |
+        echo "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" > key.json
+        echo "YC_SERVICE_ACCOUNT_KEY_FILE=$PWD/key.json" >> $GITHUB_ENV
+
+    - name: Create tfvars
+      run: |
+        cat > terraform.tfvars <<EOF
+        yc_cloud_id  = "${{ secrets.YC_CLOUD_ID }}"
+        yc_folder_id = "${{ secrets.YC_FOLDER_ID }}"
+        ssh_public_key_path = "./ssh_key.pub"
+        EOF
+      working-directory: ./infrastructure/terraform
+
+    - name: Create dummy SSH key
+      run: |
+        ssh-keygen -t rsa -b 4096 -f ./ssh_key -N ""
+        mv ./ssh_key.pub ./infrastructure/terraform/
+
+    - name: Terraform Init
+      run: terraform init
+      working-directory: ./infrastructure/terraform
+
+    - name: Terraform Destroy
+      run: terraform destroy -auto-approve
+      working-directory: ./infrastructure/terraform
+
+    - name: Create summary
+      run: |
+        echo "## 🗑️ Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "All resources have been successfully removed." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### What was removed:" >> $GITHUB_STEP_SUMMARY
+        echo "- Virtual machines" >> $GITHUB_STEP_SUMMARY
+        echo "- Network and subnets" >> $GITHUB_STEP_SUMMARY
+        echo "- Load balancer" >> $GITHUB_STEP_SUMMARY
+        echo "- Security groups" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ You are no longer being charged for these resources." >> $GITHUB_STEP_SUMMARY
