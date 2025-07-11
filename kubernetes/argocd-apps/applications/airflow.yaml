@@ -3,77 +3,52 @@ kind: Application
 metadata:
   name: airflow
   namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   project: applications
   source:
-    repoURL: https://airflow.apache.org/  # Правильный URL репозитория
+    repoURL: https://airflow.apache.org/
     targetRevision: 1.11.0
     chart: airflow
     helm:
-      valuesObject:
-        # Образы
-        defaultAirflowRepository: apache/airflow
-        defaultAirflowTag: 2.8.1-python3.11
-        airflowVersion: 2.8.1
-
-        # Executor
-        executor: KubernetesExecutor
-
-        images:
-          airflow:
-            repository: apache/airflow
-            tag: 2.8.1-python3.11
-            pullPolicy: IfNotPresent
-
-        # Переменные окружения
+      values: |
+        executor: LocalExecutor
+        
         env:
-        - name: AIRFLOW__CORE__LOAD_EXAMPLES
-          value: "False"
-        - name: AIRFLOW__KUBERNETES__NAMESPACE
-          value: "airflow"
-        - name: AIRFLOW__KUBERNETES__WORKER_SERVICE_ACCOUNT_NAME
-          value: "airflow-worker"
-        - name: AIRFLOW__KUBERNETES__IN_CLUSTER
-          value: "True"
-        - name: AIRFLOW__METRICS__STATSD_ON
-          value: "True"
-        - name: AIRFLOW__METRICS__STATSD_HOST
-          value: "airflow-statsd"
-        - name: AIRFLOW__METRICS__STATSD_PORT
-          value: "9125"
-        - name: AIRFLOW__WEBSERVER__EXPOSE_CONFIG
-          value: "True"
-        - name: AIRFLOW__CORE__PARALLELISM
-          value: "32"
-        - name: AIRFLOW__CORE__DAG_CONCURRENCY
-          value: "16"
-        - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS
-          value: "True"
-        - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS_ON_FAILURE
-          value: "False"
-
-        # Webserver
+          - name: AIRFLOW__CORE__LOAD_EXAMPLES
+            value: "False"
+          - name: AIRFLOW__CORE__EXECUTOR
+            value: "LocalExecutor"
+          - name: AIRFLOW__LOGGING__LOGGING_LEVEL
+            value: "INFO"
+          # Важно! Указываем где хранить логи
+          - name: AIRFLOW__LOGGING__BASE_LOG_FOLDER
+            value: "/opt/airflow/logs"
+          - name: AIRFLOW__SCHEDULER__CHILD_PROCESS_LOG_DIRECTORY
+            value: "/opt/airflow/logs/scheduler"
+        
+        # Добавляем volumes для логов
+        extraVolumes:
+          - name: logs
+            emptyDir: {}
+        
+        extraVolumeMounts:
+          - name: logs
+            mountPath: /opt/airflow/logs
+        
         webserver:
-          replicas: 1
-          resources:
-            requests:
-              memory: 1Gi
-              cpu: 300m
-            limits:
-              memory: 2Gi
-              cpu: 1
-
-          # Service
+          extraVolumes:
+            - name: logs
+              emptyDir: {}
+          extraVolumeMounts:
+            - name: logs
+              mountPath: /opt/airflow/logs
           service:
             type: NodePort
             ports:
               - name: airflow-ui
                 port: 8080
+                targetPort: 8080
                 nodePort: 32080
-
-          # Default user
           defaultUser:
             enabled: true
             role: Admin
@@ -82,134 +57,65 @@ spec:
             firstName: Admin
             lastName: User
             password: admin
-
-        # Scheduler
+        
         scheduler:
-          replicas: 1
-          resources:
-            requests:
-              memory: 1Gi
-              cpu: 300m
-            limits:
-              memory: 2Gi
-              cpu: 1
-
-        # Workers (для KubernetesExecutor)
+          extraVolumes:
+            - name: logs
+              emptyDir: {}
+          extraVolumeMounts:
+            - name: logs
+              mountPath: /opt/airflow/logs
+        
         workers:
-          resources:
-            requests:
-              memory: 1Gi
-              cpu: 300m
-            limits:
-              memory: 2Gi
-              cpu: 1
-
-        # PostgreSQL
+          extraVolumes:
+            - name: logs
+              emptyDir: {}
+          extraVolumeMounts:
+            - name: logs
+              mountPath: /opt/airflow/logs
+        
         postgresql:
           enabled: true
           auth:
-            enablePostgresUser: true
             postgresPassword: postgres
             username: airflow
             password: airflow
             database: airflow
-
-          primary:
-            persistence:
-              enabled: true
-              size: 20Gi
-              storageClass: local-path
-
-            resources:
-              requests:
-                memory: 256Mi
-                cpu: 250m
-              limits:
-                memory: 512Mi
-                cpu: 500m
-
-        # Redis не нужен для KubernetesExecutor
+        
         redis:
           enabled: false
-
-        # DAGs
+        
+        flower:
+          enabled: false
+        
+        statsd:
+          enabled: false
+        
+        logs:
+          persistence:
+            enabled: false
+        
         dags:
           persistence:
             enabled: false
-
           gitSync:
             enabled: true
             repo: https://github.com/JeroniMan/k8s-otus-airflow.git
             branch: main
-            rev: HEAD
-            depth: 1
-            wait: 60
             subPath: "airflow/dags"
-
-            resources:
-              requests:
-                memory: 64Mi
-                cpu: 50m
-              limits:
-                memory: 128Mi
-                cpu: 100m
-
-        # Logs
-        logs:
-          persistence:
-            enabled: true
-            size: 50Gi
-            storageClass: local-path
-
-        # Ingress отключен, используем NodePort
-        ingress:
-          enabled: false
-
-        # Создание пользователя без Helm hooks
+            wait: 60
+        
         createUserJob:
           useHelmHooks: false
-          applyCustomEnv: false
-
-        # Secret key для webserver
-        webserverSecretKey: "af7cn976UVRVf-dTI50-oao03p9r2fGEpU79XPuJOxc"
-
-        # StatefulSet для StatsD
-        statsd:
+        
+        migrateDatabaseJob:
           enabled: true
-
-        # Метрики
-        metrics:
-          enabled: true
-
-        # Очистка старых задач
-        cleanup:
-          enabled: true
-          schedule: "*/15 * * * *"
-
-        # Не создавать ServiceAccount автоматически
-        serviceAccount:
-          create: false
-          name: airflow
-
-        # Security Context
-        securityContext:
-          runAsUser: 50000
-          runAsGroup: 0
-          fsGroup: 0
+          useHelmHooks: false
 
   destination:
     server: https://kubernetes.default.svc
     namespace: airflow
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
     - CreateNamespace=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m

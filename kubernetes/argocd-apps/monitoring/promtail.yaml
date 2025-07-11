@@ -28,43 +28,47 @@ spec:
           snippets:
             # Общие настройки
             scrapeConfigs: |
+              # Логи контейнеров k3s
               - job_name: kubernetes-pods
                 kubernetes_sd_configs:
                 - role: pod
                 pipeline_stages:
                 - cri: {}
-                - json:
-                    expressions:
-                      level: level
-                      msg: msg
-                      ts: time
-                    source: log
-                - labels:
-                    level:
-                - timestamp:
-                    format: RFC3339
-                    source: ts
-                    action: replace
                 relabel_configs:
-                - source_labels: [__meta_kubernetes_pod_label_app]
-                  target_label: app
-                - source_labels: [__meta_kubernetes_pod_label_release]
-                  target_label: release
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  target_label: node
                 - source_labels: [__meta_kubernetes_namespace]
                   target_label: namespace
                 - source_labels: [__meta_kubernetes_pod_name]
                   target_label: pod
                 - source_labels: [__meta_kubernetes_container_name]
                   target_label: container
-                - source_labels: [__meta_kubernetes_pod_node_name]
-                  target_label: node
+                - source_labels: [__meta_kubernetes_pod_label_app]
+                  target_label: app
+                - action: replace
+                  replacement: /var/log/pods/*$1/*.log
+                  separator: /
+                  source_labels:
+                  - __meta_kubernetes_pod_uid
+                  - __meta_kubernetes_pod_container_name
+                  target_label: __path__
 
         # DaemonSet для запуска на всех нодах
         daemonset:
           enabled: true
 
-        # Монтирование директорий с логами
-        defaultVolumes:
+        # Важно! Правильные пути для k3s
+        volumeMounts:
+        - name: run
+          mountPath: /run/promtail
+        - name: pods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: containers
+          mountPath: /var/lib/rancher/k3s/agent/containerd/io.containerd.grpc.v1.cri/containers
+          readOnly: true
+
+        volumes:
         - name: run
           hostPath:
             path: /run/promtail
@@ -73,17 +77,7 @@ spec:
             path: /var/log/pods
         - name: containers
           hostPath:
-            path: /var/lib/docker/containers
-
-        defaultVolumeMounts:
-        - name: run
-          mountPath: /run/promtail
-        - name: pods
-          mountPath: /var/log/pods
-          readOnly: true
-        - name: containers
-          mountPath: /var/lib/docker/containers
-          readOnly: true
+            path: /var/lib/rancher/k3s/agent/containerd/io.containerd.grpc.v1.cri/containers
 
         # Толерации для запуска на всех нодах включая master
         tolerations:
@@ -109,10 +103,6 @@ spec:
           labels:
             prometheus: kube-prometheus
 
-        # Не использовать системный журнал по умолчанию
-        extraArgs:
-        - -config.expand-env=true
-
         # Безопасность
         podSecurityPolicy:
           create: false
@@ -120,6 +110,18 @@ spec:
         rbac:
           create: true
           pspEnabled: false
+
+        # Security context для доступа к логам
+        containerSecurityContext:
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          allowPrivilegeEscalation: false
+
+        podSecurityContext:
+          runAsUser: 0
+          runAsGroup: 0
 
   destination:
     server: https://kubernetes.default.svc

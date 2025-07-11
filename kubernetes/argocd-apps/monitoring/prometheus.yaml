@@ -13,52 +13,125 @@ spec:
     chart: kube-prometheus-stack
     helm:
       valuesObject:
-        # Отключить некоторые компоненты временно
-        nodeExporter:
-          enabled: true
+        # ВАЖНО: Отключаем установку CRDs через Helm
+        crds:
+          enabled: false
+
+        # Отключаем компоненты временно для упрощения
         kubeStateMetrics:
           enabled: true
+        nodeExporter:
+          enabled: true
+        grafana:
+          enabled: false  # Используем отдельную Grafana
+
+        # Prometheus Operator
         prometheusOperator:
-          # Создать ServiceAccount
+          enabled: true
           serviceAccount:
             create: true
             name: prometheus-operator
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 200m
+              memory: 200Mi
+
+        # Prometheus
         prometheus:
           serviceAccount:
             create: true
             name: prometheus
           prometheusSpec:
+            retention: 7d
             serviceAccountName: prometheus
-            # ... остальные настройки
-        # Добавить эти настройки
+
+            # Упрощенное хранилище
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 10Gi
+
+            # Минимальные ресурсы
+            resources:
+              requests:
+                cpu: 200m
+                memory: 400Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+
+            # Селекторы для ServiceMonitor
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+
+            # Отключаем дополнительные scrape configs
+            additionalScrapeConfigs: []
+
+        # AlertManager - минимальная конфигурация
+        alertmanager:
+          enabled: true
+          serviceAccount:
+            create: true
+            name: alertmanager
+          alertmanagerSpec:
+            replicas: 1
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
+            resources:
+              requests:
+                cpu: 50m
+                memory: 50Mi
+              limits:
+                cpu: 100m
+                memory: 100Mi
+
+        # Отключаем правила по умолчанию для упрощения
         defaultRules:
-          create: true
-          rules:
-            alertmanager: true
-            etcd: false
-            general: true
-            k8s: true
-            kubeApiserver: false
-            kubeApiserverAvailability: false
-            kubeApiserverError: false
-            kubeApiserverSlos: false
-            kubelet: true
-            kubePrometheusGeneral: true
-            kubePrometheusNodeAlerting: true
-            kubePrometheusNodeRecording: true
-            kubernetesAbsent: true
-            kubernetesApps: true
-            kubernetesResources: true
-            kubernetesStorage: true
-            kubernetesSystem: true
-            network: true
-            node: true
-            prometheus: true
-            prometheusOperator: true
-            time: true
+          create: false
+
+        # Отключаем дополнительные компоненты
+        coreDns:
+          enabled: false
+        kubeDns:
+          enabled: false
+        kubeEtcd:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
+
   syncPolicy:
     automated:
       prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true  # Важно для больших манифестов
+    - Replace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

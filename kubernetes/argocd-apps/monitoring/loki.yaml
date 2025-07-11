@@ -46,9 +46,10 @@ spec:
             reject_old_samples_max_age: 168h
             max_entries_limit_per_query: 5000
 
-        # Простой single binary режим
+        # Простой single binary режим - используем Deployment
         singleBinary:
           replicas: 1
+          # Заменяем StatefulSet на Deployment
           persistence:
             enabled: true
             storageClass: local-path
@@ -103,3 +104,4 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+    - Replace=true  # Добавляем Replace для пересоздания ресурсов
