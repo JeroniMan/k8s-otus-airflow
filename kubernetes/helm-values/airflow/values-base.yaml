@@ -1,0 +1,131 @@
+# Base Airflow configuration
+defaultAirflowRepository: apache/airflow
+defaultAirflowTag: 2.8.1-python3.11
+
+# Airflow configuration
+airflowVersion: 2.8.1
+
+executor: KubernetesExecutor
+
+images:
+  airflow:
+    repository: apache/airflow
+    tag: 2.8.1-python3.11
+    pullPolicy: IfNotPresent
+  pod_template:
+    repository: apache/airflow
+    tag: 2.8.1-python3.11
+
+# Environment variables
+env:
+  - name: AIRFLOW__CORE__LOAD_EXAMPLES
+    value: "False"
+  - name: AIRFLOW__CORE__COLORED_LOG_FORMAT
+    value: "True"
+  - name: AIRFLOW__KUBERNETES__NAMESPACE
+    value: "airflow"
+  - name: AIRFLOW__KUBERNETES__WORKER_SERVICE_ACCOUNT_NAME
+    value: "airflow-worker"
+  - name: AIRFLOW__KUBERNETES__IN_CLUSTER
+    value: "True"
+
+# Webserver config
+webserver:
+  replicas: 1
+  serviceAccount:
+    create: false
+    name: airflow-webserver
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "300m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+
+# Scheduler config
+scheduler:
+  replicas: 1
+  serviceAccount:
+    create: false
+    name: airflow-scheduler
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "300m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+
+# Workers
+workers:
+  serviceAccount:
+    create: false
+    name: airflow-worker
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "300m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+
+# PostgreSQL
+postgresql:
+  enabled: true
+  auth:
+    enablePostgresUser: true
+    postgresPassword: postgres
+    username: airflow
+    password: airflow
+    database: airflow
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: local-path
+
+# Redis (not needed for KubernetesExecutor)
+redis:
+  enabled: false
+
+# DAGs
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: true
+    repo: https://github.com/YOUR_USERNAME/YOUR_REPO.git
+    branch: main
+    rev: HEAD
+    depth: 1
+    wait: 60
+    subPath: "airflow/dags"
+    sshKeySecret: airflow-git-ssh-secret
+
+# Logs
+logs:
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: local-path
+
+# Ingress
+ingress:
+  enabled: true
+  web:
+    enabled: true
+    path: "/"
+    pathType: Prefix
+    host: ""
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+
+# Create initial user
+createUserJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+webserverSecretKey: d5f6g7h8j9k0l1m2n3o4p5q6r7s8t9u0

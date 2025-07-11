@@ -1,0 +1,134 @@
+{
+  "created_resources": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "cluster_name": "string",
+        "k3s_version": "string",
+        "master_count": "number",
+        "preemptible": "bool",
+        "total_cpu": "number",
+        "total_memory": "number",
+        "worker_count": "number"
+      }
+    ],
+    "value": {
+      "cluster_name": "k8s-airflow-prod",
+      "k3s_version": "v1.28.5+k3s1",
+      "master_count": 1,
+      "preemptible": false,
+      "total_cpu": 6,
+      "total_memory": 12,
+      "worker_count": 2
+    }
+  },
+  "get_kubeconfig_command": {
+    "sensitive": false,
+    "type": "string",
+    "value": "ssh -i /Users/germankovalev/.ssh/k8s-airflow ubuntu@89.169.148.229 'sudo cat /etc/rancher/k3s/k3s.yaml' \u003e kubeconfig \u0026\u0026 sed -i 's/127.0.0.1/89.169.148.229/g' kubeconfig"
+  },
+  "kubeconfig_path": {
+    "sensitive": false,
+    "type": "string",
+    "value": "/etc/rancher/k3s/k3s.yaml"
+  },
+  "load_balancer_ip": {
+    "sensitive": false,
+    "type": "string",
+    "value": "158.160.155.39"
+  },
+  "master_internal_ip": {
+    "sensitive": false,
+    "type": "string",
+    "value": "10.0.1.26"
+  },
+  "master_ips": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "master-0": [
+          "object",
+          {
+            "private_ip": "string",
+            "public_ip": "string"
+          }
+        ]
+      }
+    ],
+    "value": {
+      "master-0": {
+        "private_ip": "10.0.1.26",
+        "public_ip": "89.169.148.229"
+      }
+    }
+  },
+  "network_info": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "network_id": "string",
+        "subnet_cidr": "string",
+        "subnet_id": "string"
+      }
+    ],
+    "value": {
+      "network_id": "enp5a54nmbkandh7cte8",
+      "subnet_cidr": "10.0.1.0/24",
+      "subnet_id": "e9bbpvmfc50oac4ks1f9"
+    }
+  },
+  "service_urls": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "airflow": "string",
+        "grafana": "string"
+      }
+    ],
+    "value": {
+      "airflow": "http://158.160.155.39:32080",
+      "grafana": "http://158.160.155.39:32080/grafana"
+    }
+  },
+  "ssh_master_command": {
+    "sensitive": false,
+    "type": "string",
+    "value": "ssh -i /Users/germankovalev/.ssh/k8s-airflow ubuntu@89.169.148.229"
+  },
+  "worker_ips": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "worker-0": [
+          "object",
+          {
+            "private_ip": "string",
+            "public_ip": "string"
+          }
+        ],
+        "worker-1": [
+          "object",
+          {
+            "private_ip": "string",
+            "public_ip": "string"
+          }
+        ]
+      }
+    ],
+    "value": {
+      "worker-0": {
+        "private_ip": "10.0.1.29",
+        "public_ip": "158.160.60.51"
+      },
+      "worker-1": {
+        "private_ip": "10.0.1.12",
+        "public_ip": "51.250.71.93"
+      }
+    }
+  }
+}

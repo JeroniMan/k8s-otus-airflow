@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airflow
+  namespace: argocd
+spec:
+  project: default
+
+  sources:
+  - repoURL: https://airflow.apache.org/docs/helm-chart/stable/index.yaml
+    targetRevision: 1.11.0
+    chart: airflow
+    helm:
+      valueFiles:
+      - $values/helm-values/airflow/values.yaml
+
+  - repoURL: https://github.com/YOUR_USERNAME/YOUR_REPO
+    targetRevision: HEAD
+    ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: airflow
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=false  # Namespace создается через base/
