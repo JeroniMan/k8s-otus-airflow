@@ -1,0 +1,70 @@
+controller:
+  service:
+    type: LoadBalancer
+    annotations:
+      yandex.cloud/load-balancer-type: external
+      yandex.cloud/subnet-id: "${SUBNET_ID}"
+    externalTrafficPolicy: Local
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  replicaCount: 2
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/component: controller
+          topologyKey: kubernetes.io/hostname
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+      additionalLabels:
+        prometheus: kube-prometheus
+
+  config:
+    proxy-body-size: "50m"
+    proxy-read-timeout: "600"
+    proxy-send-timeout: "600"
+    use-forwarded-headers: "true"
+    compute-full-forwarded-for: "true"
+    ssl-protocols: "TLSv1.2 TLSv1.3"
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+defaultBackend:
+  enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+    limits:
+      cpu: 50m
+      memory: 50Mi
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true

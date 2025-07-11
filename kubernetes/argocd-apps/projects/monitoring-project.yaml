@@ -1,20 +1,18 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: infrastructure
+  name: monitoring
   namespace: argocd
 spec:
-  description: Infrastructure components (ingress, cert-manager, etc)
+  description: Monitoring stack (Prometheus, Grafana, Loki)
 
   sourceRepos:
-  - 'https://kubernetes.github.io/ingress-nginx'
-  - 'https://charts.jetstack.io'
+  - 'https://prometheus-community.github.io/helm-charts'
+  - 'https://grafana.github.io/helm-charts'
   - 'https://github.com/JeroniMan/k8s-otus-airflow'
 
   destinations:
-  - namespace: ingress-nginx
-    server: https://kubernetes.default.svc
-  - namespace: cert-manager
+  - namespace: monitoring
     server: https://kubernetes.default.svc
 
   clusterResourceWhitelist:
@@ -24,10 +22,8 @@ spec:
     kind: MutatingWebhookConfiguration
   - group: apiextensions.k8s.io
     kind: CustomResourceDefinition
-  - group: cert-manager.io
-    kind: ClusterIssuer
-  - group: cert-manager.io
-    kind: Issuer
+  - group: monitoring.coreos.com
+    kind: '*'
   - group: rbac.authorization.k8s.io
     kind: ClusterRole
   - group: rbac.authorization.k8s.io
@@ -40,6 +36,6 @@ spec:
   roles:
   - name: admin
     policies:
-    - p, proj:infrastructure:admin, applications, *, infrastructure/*, allow
+    - p, proj:monitoring:admin, applications, *, monitoring/*, allow
     groups:
-    - infrastructure-admins
+    - monitoring-admins

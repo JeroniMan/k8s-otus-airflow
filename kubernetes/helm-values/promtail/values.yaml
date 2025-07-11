@@ -1,0 +1,206 @@
+defaultAirflowRepository: apache/airflow
+defaultAirflowTag: 2.8.1-python3.11
+
+airflowVersion: 2.8.1
+
+executor: KubernetesExecutor
+
+images:
+  airflow:
+    repository: apache/airflow
+    tag: 2.8.1-python3.11
+    pullPolicy: IfNotPresent
+
+env:
+- name: AIRFLOW__CORE__LOAD_EXAMPLES
+  value: "False"
+- name: AIRFLOW__KUBERNETES__NAMESPACE
+  value: "airflow"
+- name: AIRFLOW__KUBERNETES__WORKER_SERVICE_ACCOUNT_NAME
+  value: "airflow-worker"
+- name: AIRFLOW__KUBERNETES__IN_CLUSTER
+  value: "True"
+- name: AIRFLOW__METRICS__STATSD_ON
+  value: "True"
+- name: AIRFLOW__METRICS__STATSD_HOST
+  value: "airflow-statsd"
+- name: AIRFLOW__METRICS__STATSD_PORT
+  value: "9125"
+- name: AIRFLOW__CORE__COLORED_LOG_FORMAT
+  value: "True"
+- name: AIRFLOW__WEBSERVER__EXPOSE_CONFIG
+  value: "True"
+- name: AIRFLOW__CORE__PARALLELISM
+  value: "32"
+- name: AIRFLOW__CORE__DAG_CONCURRENCY
+  value: "16"
+- name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS
+  value: "True"
+- name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS_ON_FAILURE
+  value: "False"
+
+webserver:
+  replicas: 2
+  
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 300m
+    limits:
+      memory: 2Gi
+      cpu: 1
+  
+  defaultUser:
+    enabled: true
+    role: Admin
+    username: admin
+    email: admin@example.com
+    firstName: Admin
+    lastName: User
+    password: admin
+
+scheduler:
+  replicas: 2
+  
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 300m
+    limits:
+      memory: 2Gi
+      cpu: 1
+
+workers:
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 300m
+    limits:
+      memory: 2Gi
+      cpu: 1
+
+postgresql:
+  enabled: true
+  auth:
+    enablePostgresUser: true
+    postgresPassword: postgres
+    username: airflow
+    password: airflow
+    database: airflow
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: yc-network-ssd
+    
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+redis:
+  enabled: false
+
+dags:
+  persistence:
+    enabled: false
+  
+  gitSync:
+    enabled: true
+    repo: https://github.com/JeroniMan/k8s-otus-airflow.git
+    branch: main
+    rev: HEAD
+    depth: 1
+    wait: 60
+    subPath: "airflow/dags"
+    
+    resources:
+      requests:
+        memory: 64Mi
+        cpu: 50m
+      limits:
+        memory: 128Mi
+        cpu: 100m
+
+logs:
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: yc-network-ssd
+
+ingress:
+  enabled: true
+  web:
+    enabled: true
+    path: "/"
+    pathType: Prefix
+    host: airflow.${DOMAIN}
+    ingressClassName: nginx
+    
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    
+    tls:
+      enabled: true
+      secretName: airflow-tls
+
+createUserJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+webserverSecretKey: ${AIRFLOW_WEBSERVER_SECRET_KEY}
+
+statsd:
+  enabled: true
+  
+  overrideMappings:
+  - match: "airflow.dag_processing.total_parse_time"
+    name: "airflow_dag_processing_total_parse_time"
+    help: "Total time spent parsing DAGs"
+  - match: "airflow.dagrun.duration.success.*"
+    name: "airflow_dagrun_duration_success"
+    labels:
+      dag_id: "$1"
+  - match: "airflow.dagrun.duration.failed.*"
+    name: "airflow_dagrun_duration_failed"
+    labels:
+      dag_id: "$1"
+  - match: "airflow.task.duration.*.*"
+    name: "airflow_task_duration"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+  - match: "airflow.task_instance.created.*.*"
+    name: "airflow_task_created"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+  - match: "airflow.task_instance.started.*.*"
+    name: "airflow_task_started"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+  - match: "airflow.task_instance.finished.*.*"
+    name: "airflow_task_finished"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+
+metrics:
+  enabled: true
+  
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels:
+      prometheus: kube-prometheus
+
+cleanup:
+  enabled: true
+  schedule: "*/15 * * * *"

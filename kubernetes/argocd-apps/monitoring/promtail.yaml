@@ -1,0 +1,107 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: promtail
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 6.15.5
+    chart: promtail
+    helm:
+      valuesObject:
+        config:
+          clients:
+          - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+            tenant_id: 1
+          snippets:
+            pipelineStages:
+            - cri: {}
+            - json:
+                expressions:
+                  output: log
+                  stream: stream
+                  attrs:
+            - json:
+                expressions:
+                  msg: msg
+                  level: level
+                  ts: time
+                source: output
+            - regex:
+                expression: '(?P<pod_uid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
+                source: filename
+            - labels:
+                stream:
+                level:
+                pod_uid:
+            - timestamp:
+                format: RFC3339
+                source: ts
+            - output:
+                source: msg
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        daemonset:
+          enabled: true
+        rbac:
+          create: true
+          pspEnabled: false
+        serviceAccount:
+          create: true
+          name: promtail
+        tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        defaultVolumes:
+        - name: run
+          hostPath:
+            path: /run/promtail
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+        - name: containers
+          hostPath:
+            path: /var/lib/docker/containers
+        defaultVolumeMounts:
+        - name: run
+          mountPath: /run/promtail
+        - name: pods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: containers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        extraVolumes:
+        - name: journal
+          hostPath:
+            path: /var/log/journal
+        extraVolumeMounts:
+        - name: journal
+          mountPath: /var/log/journal
+          readOnly: true
+        serviceMonitor:
+          enabled: true
+          labels:
+            prometheus: kube-prometheus
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

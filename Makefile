@@ -1,258 +1,207 @@
-# Makefile - обновленная версия
-
 .PHONY: help
-help: ## Показать эту справку
-	@echo "Kubernetes + Airflow + Monitoring Stack"
+help: ## Show this help
+	@echo "Kubernetes + Airflow on k3s (Yandex Cloud VMs)"
 	@echo ""
-	@echo "Доступные команды:"
+	@echo "Quick start:"
+	@echo "  make init          - Initialize environment"
+	@echo "  make deploy        - Full deployment"
+	@echo "  make destroy       - Destroy everything"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Примеры использования:"
-	@echo "  make setup              # Установить все инструменты"
-	@echo "  make deploy             # Развернуть всю систему"
-	@echo "  make status             # Проверить статус"
-	@echo "  make destroy            # Удалить всё"
+	@echo "Available targets:"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-# ==================== SETUP ====================
+# ========== STAGE 0: Prerequisites ==========
 
-.PHONY: setup
-setup: setup-tools setup-env ## Полная настройка окружения
+.PHONY: check
+check: ## Check all prerequisites
+	@scripts/00-prerequisites/01-check-tools.sh
 
-.PHONY: setup-tools
-setup-tools: ## Установить необходимые инструменты
-	@scripts/setup/install-prerequisites.sh
-	@scripts/setup/install-terraform.sh
-	@scripts/setup/install-ansible.sh
-	@scripts/setup/install-k8s-tools.sh
-	@scripts/setup/install-yc-cli.sh
+.PHONY: install-tools
+install-tools: ## Install required tools
+	@scripts/00-prerequisites/02-install-tools.sh
 
-.PHONY: setup-env
-setup-env: ## Настроить окружение
-	@scripts/setup/configure-environment.sh
+.PHONY: setup-yc
+setup-yc: ## Setup Yandex Cloud CLI
+	@scripts/00-prerequisites/03-setup-yc.sh
 
-# ==================== INFRASTRUCTURE ====================
+.PHONY: init
+init: check install-tools setup-yc ## Initialize environment (check + install + setup)
+	@echo "✓ Environment initialized"
 
-.PHONY: infrastructure
-infrastructure: infra-init infra-apply ## Создать всю инфраструктуру
+# ========== STAGE 1: Infrastructure ==========
 
-.PHONY: infra-init
-infra-init: ## Инициализировать Terraform
-	@scripts/infrastructure/create-s3-bucket.sh
-	@scripts/infrastructure/terraform-init.sh
-
-.PHONY: infra-plan
-infra-plan: ## Показать план Terraform
-	@scripts/infrastructure/terraform-plan.sh
-
-.PHONY: infra-apply
-infra-apply: ## Применить изменения Terraform
-	@scripts/infrastructure/terraform-apply.sh
-
-.PHONY: infra-destroy
-infra-destroy: ## Удалить инфраструктуру Terraform
-	@scripts/infrastructure/terraform-destroy.sh
-
-.PHONY: infra-output
-infra-output: ## Показать outputs Terraform
-	@scripts/infrastructure/terraform-output.sh
-
-# ==================== KUBERNETES ====================
-
-.PHONY: kubernetes
-kubernetes: k8s-install k8s-config ## Установить и настроить Kubernetes
-
-.PHONY: k8s-install
-k8s-install: ## Установить k3s
-	@scripts/kubernetes/install-k3s.sh
-
-.PHONY: k8s-config
-k8s-config: ## Получить kubeconfig
-	@scripts/kubernetes/get-kubeconfig.sh
-
-.PHONY: k8s-verify
-k8s-verify: ## Проверить кластер
-	@export KUBECONFIG=${PWD}/kubeconfig && kubectl get nodes
-
-# ==================== APPLICATIONS ====================
-
-.PHONY: applications
-applications: apps-argocd apps-secrets apps-deploy ## Развернуть все приложения
-
-.PHONY: apps-argocd
-apps-argocd: ## Установить ArgoCD
-	@scripts/kubernetes/install-argocd.sh
-
-.PHONY: apps-secrets
-apps-secrets: ## Создать секреты
-	@scripts/kubernetes/create-secrets.sh
-
-.PHONY: apps-deploy
-apps-deploy: ## Развернуть приложения через ArgoCD
-	@scripts/kubernetes/deploy-apps.sh
-
-.PHONY: apps-status
-apps-status: ## Показать статус приложений
-	@scripts/monitoring/check-apps-status.sh
-
-.PHONY: apps-wait
-apps-wait: ## Дождаться готовности приложений
-	@scripts/kubernetes/wait-for-ready.sh
-
-# ==================== MAIN WORKFLOWS ====================
-
-.PHONY: deploy
-deploy: ## 🚀 Развернуть всю систему
-	@scripts/workflows/full-deploy.sh
-
-.PHONY: quick-start
-quick-start: ## ⚡ Быстрый старт с установкой инструментов
-	@scripts/workflows/quick-start.sh
-
-.PHONY: production
-production: ## 🏭 Production развертывание
-	@scripts/workflows/production-deploy.sh
-
-.PHONY: destroy
-destroy: ## 💥 Удалить всю инфраструктуру
-	@scripts/workflows/destroy-all.sh
-
-# ==================== OPERATIONS ====================
-
-.PHONY: backup
-backup: ## 💾 Создать backup конфигураций
-	@scripts/operations/backup-config.sh
-
-.PHONY: restore
-restore: ## 📥 Восстановить из backup
-	@scripts/operations/restore-config.sh
-
-.PHONY: cleanup
-cleanup: ## 🧹 Очистить временные ресурсы
-	@scripts/operations/cleanup-resources.sh
-
-.PHONY: emergency-cleanup
-emergency-cleanup: ## 🚨 Экстренная очистка всего
-	@scripts/operations/emergency-cleanup.sh
-
-.PHONY: debug
-debug: ## 🐛 Собрать отладочную информацию
-	@scripts/operations/debug-cluster.sh
-
-# ==================== MONITORING ====================
-
-.PHONY: status
-status: ## 📊 Показать общий статус системы
-	@scripts/monitoring/check-cluster-status.sh
-	@scripts/monitoring/check-apps-status.sh
-
-.PHONY: health
-health: ## 🏥 Проверить здоровье системы
-	@scripts/operations/health-check.sh
-
-.PHONY: metrics
-metrics: ## 📈 Показать метрики
-	@scripts/monitoring/get-metrics.sh
-
-.PHONY: alerts
-alerts: ## 🔔 Проверить алерты
-	@scripts/monitoring/test-alerts.sh
-
-# ==================== ACCESS ====================
-
-.PHONY: access-info
-access-info: ## 🔑 Показать информацию о доступе
-	@scripts/access/print-access-info.sh
-
-.PHONY: passwords
-passwords: ## 🔐 Показать все пароли
-	@scripts/access/get-passwords.sh
-
-.PHONY: port-forward
-port-forward: ## 🌐 Инструкции для port-forward
-	@echo "Доступные команды:"
-	@echo "  make port-forward-airflow   # Airflow UI на localhost:8080"
-	@echo "  make port-forward-grafana   # Grafana на localhost:3000"
-	@echo "  make port-forward-argocd    # ArgoCD на localhost:8080"
-
-.PHONY: port-forward-airflow
-port-forward-airflow: ## 🌬️ Port-forward для Airflow
-	@scripts/access/port-forward-airflow.sh
-
-.PHONY: port-forward-grafana
-port-forward-grafana: ## 📊 Port-forward для Grafana
-	@scripts/access/port-forward-grafana.sh
-
-.PHONY: port-forward-argocd
-port-forward-argocd: ## 🔄 Port-forward для ArgoCD
-	@scripts/access/port-forward-argocd.sh
-
-# ==================== DEVELOPMENT ====================
-
-.PHONY: sync-dags
-sync-dags: ## 🔄 Синхронизировать DAGs
-	@scripts/development/sync-dags.sh
-
-.PHONY: test-dag
-test-dag: ## 🧪 Тестировать DAG
-	@scripts/development/test-dag.sh $(DAG_ID) $(TASK_ID)
-
-.PHONY: reload-airflow
-reload-airflow: ## 🔄 Перезагрузить Airflow
-	@scripts/development/reload-config.sh
-
-.PHONY: local-dev
-local-dev: ## 💻 Настроить локальную разработку
-	@scripts/development/local-dev-setup.sh
-
-# ==================== VALIDATION ====================
-
-.PHONY: validate
-validate: ## ✅ Валидировать конфигурации
-	@echo "Проверка Terraform..."
-	@cd infrastructure/terraform && terraform fmt -check -recursive
-	@cd infrastructure/terraform && terraform validate
-	@echo "Проверка Kubernetes манифестов..."
-	@find kubernetes/ -name '*.yaml' -o -name '*.yml' | xargs kubeval --ignore-missing-schemas 2>/dev/null || echo "kubeval не установлен"
-	@echo "Проверка Python..."
-	@python3 -m py_compile airflow/dags/*.py
-
-# ==================== SHORTCUTS ====================
+.PHONY: create-buckets
+create-buckets: ## Create S3 buckets
+	@scripts/01-infrastructure/01-create-s3-bucket.sh
 
 .PHONY: tf-init
-tf-init: infra-init ## Alias для infra-init
+tf-init: ## Initialize Terraform
+	@scripts/01-infrastructure/02-terraform-init.sh
 
 .PHONY: tf-plan
-tf-plan: infra-plan ## Alias для infra-plan
+tf-plan: ## Show Terraform plan
+	@cd infrastructure/terraform && terraform plan
 
 .PHONY: tf-apply
-tf-apply: infra-apply ## Alias для infra-apply
+tf-apply: ## Apply Terraform configuration
+	@scripts/01-infrastructure/03-terraform-apply.sh
 
 .PHONY: tf-destroy
-tf-destroy: infra-destroy ## Alias для infra-destroy
+tf-destroy: ## Destroy Terraform infrastructure
+	@scripts/01-infrastructure/04-terraform-destroy.sh
 
-.PHONY: k-get-nodes
-k-get-nodes: ## Показать ноды кластера
-	@export KUBECONFIG=${PWD}/kubeconfig && kubectl get nodes
+.PHONY: infra
+infra: create-buckets tf-init tf-apply ## Deploy infrastructure (buckets + terraform)
 
-.PHONY: k-get-pods
-k-get-pods: ## Показать все поды
-	@export KUBECONFIG=${PWD}/kubeconfig && kubectl get pods --all-namespaces
+# ========== STAGE 2: Kubernetes ==========
 
-.PHONY: k-get-apps
-k-get-apps: ## Показать ArgoCD приложения
-	@export KUBECONFIG=${PWD}/kubeconfig && kubectl get applications -n argocd
+.PHONY: prepare-nodes
+prepare-nodes: ## Prepare nodes for k3s
+	@scripts/02-kubernetes/01-prepare-nodes.sh
 
-# ==================== LOGS ====================
+.PHONY: install-k3s
+install-k3s: ## Install k3s cluster
+	@scripts/02-kubernetes/02-install-k3s.sh
+
+.PHONY: get-kubeconfig
+get-kubeconfig: ## Get kubeconfig from master
+	@scripts/02-kubernetes/03-get-kubeconfig.sh
+
+.PHONY: verify-cluster
+verify-cluster: ## Verify k3s cluster
+	@scripts/02-kubernetes/04-verify-cluster.sh
+
+.PHONY: k8s
+k8s: prepare-nodes install-k3s get-kubeconfig verify-cluster ## Setup Kubernetes
+
+# ========== STAGE 3: ArgoCD ==========
+
+.PHONY: install-argocd
+install-argocd: ## Install ArgoCD
+	@scripts/03-argocd/01-install-argocd.sh
+
+.PHONY: configure-argocd
+configure-argocd: ## Configure ArgoCD
+	@scripts/03-argocd/02-configure-argocd.sh
+
+.PHONY: apply-projects
+apply-projects: ## Apply ArgoCD projects
+	@scripts/03-argocd/03-apply-projects.sh
+
+.PHONY: apply-apps
+apply-apps: ## Apply ArgoCD applications
+	@scripts/03-argocd/04-apply-apps.sh
+
+.PHONY: argocd
+argocd: install-argocd configure-argocd apply-projects apply-apps ## Setup ArgoCD
+
+# ========== STAGE 4: Applications ==========
+
+.PHONY: create-secrets
+create-secrets: ## Create application secrets
+	@scripts/04-applications/01-create-secrets.sh
+
+.PHONY: apply-base
+apply-base: ## Apply base resources
+	@scripts/04-applications/02-apply-base-resources.sh
+
+.PHONY: sync-apps
+sync-apps: ## Sync ArgoCD applications
+	@scripts/04-applications/03-sync-apps.sh
+
+.PHONY: verify-apps
+verify-apps: ## Verify applications
+	@scripts/04-applications/04-verify-apps.sh
+
+.PHONY: apps
+apps: create-secrets apply-base sync-apps verify-apps ## Deploy applications
+
+# ========== STAGE 5: Operations ==========
+
+.PHONY: info
+info: ## Show access information
+	@scripts/05-operations/01-get-access-info.sh
+
+.PHONY: port-forward
+port-forward: ## Show port-forward commands
+	@scripts/05-operations/02-port-forward.sh
+
+.PHONY: backup
+backup: ## Backup configurations
+	@scripts/05-operations/03-backup.sh
+
+.PHONY: cleanup
+cleanup: ## Cleanup resources
+	@scripts/05-operations/04-cleanup.sh
+
+# ========== Main Workflows ==========
+
+.PHONY: deploy
+deploy: ## 🚀 Full deployment
+	@echo "Starting full deployment..."
+	@$(MAKE) infra
+	@$(MAKE) k8s
+	@$(MAKE) argocd
+	@$(MAKE) apps
+	@$(MAKE) info
+	@echo "✓ Deployment complete!"
+
+.PHONY: destroy
+destroy: ## 💥 Destroy everything
+	@echo "⚠️  This will destroy all resources!"
+	@read -p "Are you sure? Type 'yes' to confirm: " confirm; \
+	if [ "$$confirm" = "yes" ]; then \
+		$(MAKE) cleanup; \
+		$(MAKE) tf-destroy; \
+		echo "✓ All resources destroyed"; \
+	else \
+		echo "Cancelled"; \
+	fi
+
+# ========== Quick Access ==========
+
+.PHONY: pf-airflow
+pf-airflow: ## Port-forward Airflow
+	kubectl port-forward -n airflow svc/airflow-webserver 8080:8080
+
+.PHONY: pf-grafana
+pf-grafana: ## Port-forward Grafana
+	kubectl port-forward -n monitoring svc/grafana 3000:80
+
+.PHONY: pf-argocd
+pf-argocd: ## Port-forward ArgoCD
+	kubectl port-forward -n argocd svc/argocd-server 8080:443
+
+.PHONY: ssh-master
+ssh-master: ## SSH to master node
+	@cd infrastructure/terraform && \
+	MASTER_IP=$$(terraform output -json master_ips | jq -r '.["master-0"].public_ip') && \
+	ssh -i ~/.ssh/k8s-airflow ubuntu@$$MASTER_IP
+
+# ========== Utilities ==========
 
 .PHONY: logs-airflow
-logs-airflow: ## 📜 Логи Airflow
-	@export KUBECONFIG=${PWD}/kubeconfig && kubectl logs -n airflow -l component=scheduler --tail=50 -f
+logs-airflow: ## Show Airflow logs
+	kubectl logs -n airflow -l component=scheduler --tail=50 -f
 
 .PHONY: logs-argocd
-logs-argocd: ## 📜 Логи ArgoCD
-	@export KUBECONFIG=${PWD}/kubeconfig && kubectl logs -n argocd -l app.kubernetes.io/name=argocd-server --tail=50 -f
+logs-argocd: ## Show ArgoCD logs
+	kubectl logs -n argocd -l app.kubernetes.io/name=argocd-server --tail=50 -f
 
-.PHONY: logs-ingress
-logs-ingress: ## 📜 Логи Ingress
-	@export KUBECONFIG=${PWD}/kubeconfig && kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=50 -f
+.PHONY: status
+status: ## Show cluster status
+	@echo "=== Nodes ==="
+	@kubectl get nodes
+	@echo "\n=== ArgoCD Applications ==="
+	@kubectl get applications -n argocd
+	@echo "\n=== Pods ==="
+	@kubectl get pods -n airflow
+	@kubectl get pods -n monitoring
+	@kubectl get pods -n argocd
+
+.PHONY: validate
+validate: ## Validate configurations
+	@echo "Validating Terraform..."
+	@cd infrastructure/terraform && terraform validate
+	@echo "Validating Kubernetes manifests..."
+	@find kubernetes/ -name '*.yaml' -exec kubeval {} \; 2>/dev/null || echo "kubeval not installed"

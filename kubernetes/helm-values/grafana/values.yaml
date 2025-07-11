@@ -1,0 +1,114 @@
+adminUser: admin
+adminPassword: ${GRAFANA_ADMIN_PASSWORD}
+
+replicas: 1
+
+persistence:
+  enabled: true
+  storageClassName: yc-network-ssd
+  size: 10Gi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-cookie-name: "grafana-server"
+    nginx.ingress.kubernetes.io/affinity-cookie-max-age: "86400"
+  hosts:
+  - grafana.${DOMAIN}
+  tls:
+  - secretName: grafana-tls
+    hosts:
+    - grafana.${DOMAIN}
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus-kube-prometheus-prometheus.monitoring:9090
+      isDefault: true
+      jsonData:
+        timeInterval: 30s
+    - name: Loki
+      type: loki
+      url: http://loki.monitoring:3100
+      jsonData:
+        maxLines: 1000
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      allowUiUpdates: true
+      options:
+        path: /var/lib/grafana/dashboards/default
+    - name: 'kubernetes'
+      orgId: 1
+      folder: 'Kubernetes'
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      options:
+        path: /var/lib/grafana/dashboards/kubernetes
+    - name: 'airflow'
+      orgId: 1
+      folder: 'Airflow'
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      options:
+        path: /var/lib/grafana/dashboards/airflow
+
+dashboards:
+  default:
+    node-exporter:
+      gnetId: 1860
+      revision: 29
+      datasource: Prometheus
+    kubernetes-cluster:
+      gnetId: 7249
+      revision: 1
+      datasource: Prometheus
+
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    searchNamespace: ALL
+    folder: /tmp/dashboards
+    provider:
+      allowUiUpdates: true
+      foldersFromFilesStructure: true
+  datasources:
+    enabled: false
+
+plugins:
+- grafana-clock-panel
+- grafana-simple-json-datasource
+- grafana-piechart-panel
+
+rbac:
+  create: true
+  pspEnabled: false
+
+serviceAccount:
+  create: true
+  name: grafana

@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-statsd-config
+  namespace: airflow
+data:
+  statsd_mapping.yml: |
+    mappings:
+    - match: "airflow.dag_processing.total_parse_time"
+      name: "airflow_dag_processing_total_parse_time"
+      help: "Total time spent parsing DAGs"
+    - match: "airflow.dagrun.duration.success.*"
+      name: "airflow_dagrun_duration_success"
+      labels:
+        dag_id: "$1"
+    - match: "airflow.dagrun.duration.failed.*"
+      name: "airflow_dagrun_duration_failed"
+      labels:
+        dag_id: "$1"
+    - match: "airflow.task.duration.*.*"
+      name: "airflow_task_duration"
+      labels:
+        dag_id: "$1"
+        task_id: "$2"
+    - match: "airflow.task_instance.created.*.*"
+      name: "airflow_task_created"
+      labels:
+        dag_id: "$1"
+        task_id: "$2"
+    - match: "airflow.task_instance.started.*.*"
+      name: "airflow_task_started"
+      labels:
+        dag_id: "$1"
+        task_id: "$2"
+    - match: "airflow.task_instance.finished.*.*"
+      name: "airflow_task_finished"
+      labels:
+        dag_id: "$1"
+        task_id: "$2"
+    - match: "airflow.scheduler.heartbeat"
+      name: "airflow_scheduler_heartbeat"
+      help: "Scheduler heartbeat"
+    - match: "airflow.pool.running_tasks.*"
+      name: "airflow_pool_running_tasks"
+      labels:
+        pool: "$1"
+    - match: "airflow.pool.queued_tasks.*"
+      name: "airflow_pool_queued_tasks"
+      labels:
+        pool: "$1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-statsd
+  namespace: airflow
+  labels:
+    app: airflow
+    component: statsd-exporter
+spec:
+  ports:
+  - name: statsd
+    port: 9125
+    protocol: UDP
+  - name: metrics
+    port: 9102
+    protocol: TCP
+  selector:
+    app: airflow
+    component: statsd-exporter
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-statsd-exporter
+  namespace: airflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+      component: statsd-exporter
+  template:
+    metadata:
+      labels:
+        app: airflow
+        component: statsd-exporter
+    spec:
+      containers:
+      - name: statsd-exporter
+        image: prom/statsd-exporter:v0.26.0
+        args:
+        - --statsd.mapping-config=/etc/statsd/statsd_mapping.yml
+        - --statsd.listen-udp=:9125
+        - --web.listen-address=:9102
+        ports:
+        - name: statsd
+          containerPort: 9125
+          protocol: UDP
+        - name: metrics
+          containerPort: 9102
+          protocol: TCP
+        volumeMounts:
+        - name: statsd-config
+          mountPath: /etc/statsd
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      volumes:
+      - name: statsd-config
+        configMap:
+          name: airflow-statsd-config
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: airflow-statsd
+  namespace: airflow
+  labels:
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: airflow
+      component: statsd-exporter
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics

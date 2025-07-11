@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: applications
+  namespace: argocd
+spec:
+  description: Business applications (Airflow, etc)
+
+  sourceRepos:
+  - 'https://airflow.apache.org/docs/helm-chart/stable/index.yaml'
+  - 'https://github.com/JeroniMan/k8s-otus-airflow'
+
+  destinations:
+  - namespace: airflow
+    server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRole
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRoleBinding
+
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+
+  roles:
+  - name: admin
+    policies:
+    - p, proj:applications:admin, applications, *, applications/*, allow
+    groups:
+    - applications-admins
+  - name: developer
+    policies:
+    - p, proj:applications:developer, applications, get, applications/*, allow
+    - p, proj:applications:developer, applications, sync, applications/*, allow
+    groups:
+    - developers

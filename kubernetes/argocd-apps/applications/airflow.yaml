@@ -3,28 +3,146 @@ kind: Application
 metadata:
   name: airflow
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
-
-  sources:
-  - repoURL: https://airflow.apache.org/docs/helm-chart/stable/index.yaml
+  project: applications
+  source:
+    repoURL: https://airflow.apache.org/docs/helm-chart/stable/index.yaml
     targetRevision: 1.11.0
     chart: airflow
     helm:
-      valueFiles:
-      - $values/helm-values/airflow/values.yaml
-
-  - repoURL: https://github.com/YOUR_USERNAME/YOUR_REPO
-    targetRevision: HEAD
-    ref: values
-
+      valuesObject:
+        defaultAirflowRepository: apache/airflow
+        defaultAirflowTag: 2.8.1-python3.11
+        airflowVersion: 2.8.1
+        executor: KubernetesExecutor
+        images:
+          airflow:
+            repository: apache/airflow
+            tag: 2.8.1-python3.11
+            pullPolicy: IfNotPresent
+        env:
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          value: "False"
+        - name: AIRFLOW__KUBERNETES__NAMESPACE
+          value: "airflow"
+        - name: AIRFLOW__KUBERNETES__WORKER_SERVICE_ACCOUNT_NAME
+          value: "airflow-worker"
+        - name: AIRFLOW__KUBERNETES__IN_CLUSTER
+          value: "True"
+        - name: AIRFLOW__METRICS__STATSD_ON
+          value: "True"
+        - name: AIRFLOW__METRICS__STATSD_HOST
+          value: "airflow-statsd"
+        - name: AIRFLOW__METRICS__STATSD_PORT
+          value: "9125"
+        webserver:
+          replicas: 2
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 300m
+            limits:
+              memory: 2Gi
+              cpu: 1
+        scheduler:
+          replicas: 2
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 300m
+            limits:
+              memory: 2Gi
+              cpu: 1
+        workers:
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 300m
+            limits:
+              memory: 2Gi
+              cpu: 1
+        postgresql:
+          enabled: true
+          auth:
+            enablePostgresUser: true
+            postgresPassword: postgres
+            username: airflow
+            password: airflow
+            database: airflow
+          primary:
+            persistence:
+              enabled: true
+              size: 20Gi
+              storageClass: yc-network-ssd
+        redis:
+          enabled: false
+        dags:
+          persistence:
+            enabled: false
+          gitSync:
+            enabled: true
+            repo: https://github.com/JeroniMan/k8s-otus-airflow.git
+            branch: main
+            rev: HEAD
+            depth: 1
+            wait: 60
+            subPath: "airflow/dags"
+        logs:
+          persistence:
+            enabled: true
+            size: 50Gi
+            storageClass: yc-network-ssd
+        ingress:
+          enabled: true
+          web:
+            enabled: true
+            path: "/"
+            pathType: Prefix
+            host: airflow.${DOMAIN}
+            ingressClassName: nginx
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+              nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+            tls:
+              enabled: true
+              secretName: airflow-tls
+        createUserJob:
+          useHelmHooks: false
+          applyCustomEnv: false
+        webserverSecretKey: ${AIRFLOW_WEBSERVER_SECRET_KEY}
+        statsd:
+          enabled: true
+          overrideMappings:
+          - match: "airflow.dag_processing.total_parse_time"
+            name: "airflow_dag_processing_total_parse_time"
+            help: "Total time spent parsing DAGs"
+          - match: "airflow.dagrun.duration.success.*"
+            name: "airflow_dagrun_duration_success"
+            labels:
+              dag_id: "$1"
+          - match: "airflow.dagrun.duration.failed.*"
+            name: "airflow_dagrun_duration_failed"
+            labels:
+              dag_id: "$1"
+          - match: "airflow.task.duration.*.*"
+            name: "airflow_task_duration"
+            labels:
+              dag_id: "$1"
+              task_id: "$2"
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+            namespace: monitoring
   destination:
     server: https://kubernetes.default.svc
     namespace: airflow
-
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-    - CreateNamespace=false  # Namespace создается через base/
+    - CreateNamespace=true

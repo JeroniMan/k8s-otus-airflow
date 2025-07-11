@@ -1,0 +1,93 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: monitoring
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 7.3.0
+    chart: grafana
+    helm:
+      valuesObject:
+        adminUser: admin
+        adminPassword: ${GRAFANA_ADMIN_PASSWORD}
+        persistence:
+          enabled: true
+          storageClassName: yc-network-ssd
+          size: 10Gi
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        ingress:
+          enabled: true
+          ingressClassName: nginx
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+          hosts:
+          - grafana.${DOMAIN}
+          tls:
+          - secretName: grafana-tls
+            hosts:
+            - grafana.${DOMAIN}
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+            - name: Prometheus
+              type: prometheus
+              url: http://prometheus-kube-prometheus-prometheus.monitoring:9090
+              isDefault: true
+              jsonData:
+                timeInterval: 30s
+            - name: Loki
+              type: loki
+              url: http://loki.monitoring:3100
+              jsonData:
+                maxLines: 1000
+        dashboardProviders:
+          dashboardproviders.yaml:
+            apiVersion: 1
+            providers:
+            - name: 'default'
+              orgId: 1
+              folder: ''
+              type: file
+              disableDeletion: false
+              updateIntervalSeconds: 10
+              allowUiUpdates: true
+              options:
+                path: /var/lib/grafana/dashboards/default
+        sidecar:
+          dashboards:
+            enabled: true
+            label: grafana_dashboard
+            searchNamespace: ALL
+          datasources:
+            enabled: false
+        plugins:
+        - grafana-clock-panel
+        - grafana-simple-json-datasource
+        - grafana-piechart-panel
+        rbac:
+          create: true
+          pspEnabled: false
+        serviceAccount:
+          create: true
+          name: grafana
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

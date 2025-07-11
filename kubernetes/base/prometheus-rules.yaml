@@ -1,0 +1,67 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: airflow-rules
+  namespace: airflow
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: airflow
+    interval: 30s
+    rules:
+    - alert: AirflowSchedulerDown
+      expr: up{job="airflow-scheduler"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: airflow
+      annotations:
+        summary: "Airflow Scheduler is down"
+        description: "Airflow Scheduler has been down for more than 5 minutes"
+
+    - alert: AirflowWebserverDown
+      expr: up{job="airflow-webserver"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: airflow
+      annotations:
+        summary: "Airflow Webserver is down"
+        description: "Airflow Webserver has been down for more than 5 minutes"
+
+    - alert: AirflowHighTaskFailureRate
+      expr: |
+        (
+          sum(rate(airflow_task_finished{status="failed"}[5m])) by (dag_id)
+          /
+          sum(rate(airflow_task_finished[5m])) by (dag_id)
+        ) > 0.1
+      for: 10m
+      labels:
+        severity: warning
+        component: airflow
+      annotations:
+        summary: "High task failure rate for DAG {{ $labels.dag_id }}"
+        description: "More than 10% of tasks are failing for DAG {{ $labels.dag_id }}"
+
+    - alert: AirflowSchedulerHeartbeatMissing
+      expr: time() - airflow_scheduler_heartbeat > 60
+      for: 5m
+      labels:
+        severity: critical
+        component: airflow
+      annotations:
+        summary: "Airflow Scheduler heartbeat is missing"
+        description: "Airflow Scheduler has not sent a heartbeat for more than 60 seconds"
+
+    - alert: AirflowHighQueuedTasks
+      expr: sum(airflow_pool_queued_tasks) > 100
+      for: 15m
+      labels:
+        severity: warning
+        component: airflow
+      annotations:
+        summary: "High number of queued tasks"
+        description: "More than 100 tasks are queued for execution"

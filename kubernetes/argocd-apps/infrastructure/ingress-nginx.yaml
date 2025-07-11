@@ -12,15 +12,13 @@ spec:
     targetRevision: 4.9.0
     chart: ingress-nginx
     helm:
-      valueFiles:
-        - values.yaml
-      values: |
+      valuesObject:
         controller:
           service:
-            type: NodePort
-            nodePorts:
-              http: 32080
-              https: 32443
+            type: LoadBalancer
+            annotations:
+              yandex.cloud/load-balancer-type: external
+              yandex.cloud/subnet-id: "${SUBNET_ID}"
           resources:
             requests:
               cpu: 100m
@@ -33,6 +31,20 @@ spec:
             serviceMonitor:
               enabled: true
               namespace: monitoring
+          config:
+            proxy-body-size: "50m"
+            proxy-read-timeout: "600"
+            proxy-send-timeout: "600"
+          replicaCount: 2
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: ingress-nginx
+                    app.kubernetes.io/component: controller
+                topologyKey: kubernetes.io/hostname
   destination:
     server: https://kubernetes.default.svc
     namespace: ingress-nginx

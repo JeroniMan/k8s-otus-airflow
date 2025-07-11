@@ -1,18 +1,18 @@
-# Все namespaces в одном файле
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: argocd
+  name: ingress-nginx
   labels:
-    name: argocd
+    name: ingress-nginx
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: airflow
+  name: cert-manager
   labels:
-    name: airflow
+    name: cert-manager
+    cert-manager.io/disable-validation: "true"
 ---
 apiVersion: v1
 kind: Namespace
@@ -24,6 +24,13 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ingress-nginx
+  name: airflow
   labels:
-    name: ingress-nginx
+    name: airflow
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    name: argocd
