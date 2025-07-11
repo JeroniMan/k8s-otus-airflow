@@ -3,7 +3,7 @@ set -e
 
 source "$(dirname "$0")/../lib/common.sh"
 
-step "Preparing Nodes for k3s Installation"
+step "Installing k3s Cluster"
 
 # Load environment
 load_env || exit 1
@@ -13,19 +13,17 @@ check_prerequisites ansible ansible-playbook || exit 1
 
 cd "${PROJECT_ROOT}/infrastructure/ansible"
 
-# Check inventory exists
-if [ ! -f "inventory/hosts.yml" ]; then
-    error "Ansible inventory not found. Run terraform first!"
-    exit 1
-fi
-
-info "Running prepare-nodes playbook..."
+info "Running install-k3s playbook..."
 
 # Run ansible playbook
 ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
     -i inventory/hosts.yml \
     --private-key="$SSH_PRIVATE_KEY_PATH" \
-    playbooks/prepare-nodes.yml \
+    playbooks/install-k3s.yml \
     -v
 
-success "Nodes prepared successfully!"
+success "k3s cluster installed successfully!"
+
+# Wait for cluster to stabilize
+info "Waiting for cluster to stabilize..."
+sleep 30

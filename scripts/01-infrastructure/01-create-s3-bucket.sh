@@ -24,7 +24,14 @@ if ! yc iam service-account get "$SA_NAME" &>/dev/null; then
     yc resource-manager folder add-access-binding \
         --id "$YC_FOLDER_ID" \
         --role storage.admin \
-        --service-account-name "$SA_NAME"
+        --service-account-name "$SA_NAME" || {
+            warning "Failed to assign role. Trying with service account ID..."
+            SA_ID=$(yc iam service-account get --name "$SA_NAME" --format json | jq -r '.id')
+            yc resource-manager folder add-access-binding \
+                --id "$YC_FOLDER_ID" \
+                --role storage.admin \
+                --subject "serviceAccount:$SA_ID"
+        }
 
     success "Service account created"
 else
@@ -32,18 +39,27 @@ else
 fi
 
 # Create access keys if not set
-if [ -z "$S3_ACCESS_KEY" ] || [ -z "$S3_SECRET_KEY" ]; then
+if [ -z "$ACCESS_KEY" ] || [ -z "$SECRET_KEY" ]; then
     info "Creating S3 access keys..."
 
     # Create key
     KEY_OUTPUT=$(yc iam access-key create --service-account-name "$SA_NAME" --format json)
 
-    ACCESS_KEY=$(echo "$KEY_OUTPUT" | jq -r '.access_key.key_id')
-    SECRET_KEY=$(echo "$KEY_OUTPUT" | jq -r '.secret')
+    NEW_ACCESS_KEY=$(echo "$KEY_OUTPUT" | jq -r '.access_key.key_id')
+    NEW_SECRET_KEY=$(echo "$KEY_OUTPUT" | jq -r '.secret')
 
     # Update .env
-    sed -i.bak "s/^export S3_ACCESS_KEY=.*/export S3_ACCESS_KEY=\"$ACCESS_KEY\"/" "${PROJECT_ROOT}/.env"
-    sed -i.bak "s/^export S3_SECRET_KEY=.*/export S3_SECRET_KEY=\"$SECRET_KEY\"/" "${PROJECT_ROOT}/.env"
+    if grep -q "^export ACCESS_KEY=" "${PROJECT_ROOT}/.env"; then
+        sed -i.bak "s/^export ACCESS_KEY=.*/export ACCESS_KEY=\"$NEW_ACCESS_KEY\"/" "${PROJECT_ROOT}/.env"
+    else
+        echo "export ACCESS_KEY=\"$NEW_ACCESS_KEY\"" >> "${PROJECT_ROOT}/.env"
+    fi
+
+    if grep -q "^export SECRET_KEY=" "${PROJECT_ROOT}/.env"; then
+        sed -i.bak "s/^export SECRET_KEY=.*/export SECRET_KEY=\"$NEW_SECRET_KEY\"/" "${PROJECT_ROOT}/.env"
+    else
+        echo "export SECRET_KEY=\"$NEW_SECRET_KEY\"" >> "${PROJECT_ROOT}/.env"
+    fi
 
     success "Access keys created and saved to .env"
 
@@ -56,19 +72,41 @@ create_bucket() {
     local bucket_name="$1"
     local description="$2"
 
+    if [ -z "$bucket_name" ]; then
+        error "Bucket name is empty"
+        return 1
+    fi
+
     if yc storage bucket get "$bucket_name" &>/dev/null; then
         success "Bucket $bucket_name already exists"
     else
         info "Creating bucket $bucket_name..."
-        yc storage bucket create \
+        if yc storage bucket create \
             --name "$bucket_name" \
             --default-storage-class standard \
             --max-size 10737418240 \
-            --public-read
-
-        success "Bucket $bucket_name created"
+            --public-read; then
+            success "Bucket $bucket_name created"
+        else
+            error "Failed to create bucket $bucket_name"
+            return 1
+        fi
     fi
 }
+
+# Check if bucket names are set
+if [ -z "$TF_STATE_BUCKET" ]; then
+    error "TF_STATE_BUCKET is not set in .env"
+    exit 1
+fi
+
+if [ -z "$LOKI_S3_BUCKET" ]; then
+    warning "LOKI_S3_BUCKET is not set, using default"
+    LOKI_S3_BUCKET="loki-k8s-airflow-$(date +%s)"
+
+    # Update .env
+    echo "export LOKI_S3_BUCKET=\"$LOKI_S3_BUCKET\"" >> "${PROJECT_ROOT}/.env"
+fi
 
 # Create Terraform state bucket
 create_bucket "$TF_STATE_BUCKET" "Terraform state storage"

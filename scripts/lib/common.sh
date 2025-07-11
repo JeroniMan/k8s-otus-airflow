@@ -37,15 +37,38 @@ step() {
 
 # Check if command exists
 command_exists() {
-    command -v "$1" &> /dev/null
+    command -v "$1" >/dev/null 2>&1
 }
 
 # Load .env file
 load_env() {
     if [ -f "${PROJECT_ROOT}/.env" ]; then
-        set -a
-        source "${PROJECT_ROOT}/.env"
-        set +a
+        # Read .env file line by line
+        while IFS= read -r line; do
+            # Skip comments and empty lines
+            if [ -z "$line" ] || [ "${line:0:1}" = "#" ]; then
+                continue
+            fi
+
+            # Handle export prefix
+            if echo "$line" | grep -q '^export[[:space:]]'; then
+                line=$(echo "$line" | sed 's/^export[[:space:]]//')
+            fi
+
+            # Split key and value at first =
+            if echo "$line" | grep -q '='; then
+                key=$(echo "$line" | cut -d'=' -f1 | sed 's/[[:space:]]*$//')
+                value=$(echo "$line" | cut -d'=' -f2- | sed 's/^[[:space:]]*//')
+
+                # Remove quotes from value if present
+                value=$(echo "$value" | sed 's/^["'\'']\(.*\)["'\'']$/\1/')
+
+                # Export the variable
+                if [ -n "$key" ]; then
+                    export "$key=$value"
+                fi
+            fi
+        done < "${PROJECT_ROOT}/.env"
         return 0
     else
         error "File .env not found in ${PROJECT_ROOT}"

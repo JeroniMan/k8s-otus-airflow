@@ -1,17 +1,17 @@
-# 🚀 Kubernetes + Airflow + Monitoring Stack
+# 🚀 Kubernetes + Airflow + Monitoring Stack on Yandex Cloud
 
-Полностью автоматизированное развертывание Apache Airflow в Kubernetes с мониторингом.
+Production-ready deployment of Apache Airflow on Kubernetes (k3s) with full monitoring stack using Infrastructure as Code.
 
-## 📋 Описание проекта
+## 📋 Overview
 
-Этот проект демонстрирует production-ready развертывание:
-- **Apache Airflow** на Kubernetes с Celery Executor
-- **Полный стек мониторинга** (Prometheus + Grafana + Loki)
-- **GitOps** подход с использованием ArgoCD
-- **Infrastructure as Code** с Terraform и Ansible
-- **CI/CD** через GitHub Actions
+This project automates the deployment of:
+- **Apache Airflow** on Kubernetes with KubernetesExecutor
+- **Full monitoring stack** (Prometheus + Grafana + Loki)
+- **GitOps** with ArgoCD
+- **Infrastructure as Code** with Terraform and Ansible
+- **CI/CD** through GitHub Actions
 
-## 🏗️ Архитектура
+## 🏗️ Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -26,217 +26,284 @@
 │     ArgoCD      │────▶│     Ansible     │────▶│   (k3s)         │
 │                 │     │                 │     │                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
-                        ┌────────────────────────────────┴─────────────┐
-                        │                                              │
-                        ▼                                              ▼
-                ┌─────────────────┐                          ┌─────────────────┐
-                │     Airflow     │                          │   Monitoring    │
-                │  • Webserver    │                          │  • Prometheus   │
-                │  • Scheduler    │                          │  • Grafana      │
-                │  • Workers      │                          │  • Loki         │
-                │  • PostgreSQL   │                          │  • AlertManager │
-                │  • Redis        │                          │                 │
-                └─────────────────┘                          └─────────────────┘
 ```
 
-## ⚡ Быстрый старт
+## ⚡ Quick Start
 
-### Предварительные требования
+### Prerequisites
 
-- Аккаунт Yandex Cloud с балансом ~100₽/день
-- Установленные инструменты (или используйте `scripts/setup-tools.sh`):
-  - Terraform >= 1.6.0
-  - Ansible >= 8.5.0
-  - kubectl >= 1.28.0
-  - Helm >= 3.13.0
-  - Yandex Cloud CLI
+- Yandex Cloud account with ~100₽/day budget
+- macOS or Linux (Ubuntu 20.04+)
+- Basic knowledge of Kubernetes and Terraform
 
-### Развертывание за 5 шагов
+### 1. Clone and Setup
 
 ```bash
-# 1. Клонируйте репозиторий
-git clone https://github.com/yourusername/k8s-airflow-project.git
-cd k8s-airflow-project
+# Clone repository
+git clone https://github.com/yourusername/k8s-otus-airflow.git
+cd k8s-otus-airflow
 
-# 2. Установите инструменты
-./scripts/setup-tools.sh
+# Create environment file
+cp .env.example .env
 
-# 3. Настройте Yandex Cloud
-yc init
+# Edit .env with your values
+nano .env  # Set YC_CLOUD_ID, YC_FOLDER_ID, etc.
 
-# 4. Запустите автоматическое развертывание
-./scripts/quick-deploy.sh
-
-# 5. Получите доступы (займет ~30-40 минут)
-./scripts/get-access-info.sh
+# Initialize environment (install tools)
+make init
 ```
 
-## 📦 Компоненты
+### 2. Deploy Everything
 
-### Apache Airflow
-- **Версия**: 2.8.1
-- **Executor**: Celery
-- **База данных**: PostgreSQL
-- **Очередь**: Redis
-- **Автомасштабирование**: 2-10 workers
+```bash
+# Full deployment (~20-30 minutes)
+make deploy
 
-### Мониторинг
-- **Prometheus**: Сбор метрик
-- **Grafana**: Визуализация
-- **Loki**: Централизованные логи
-- **AlertManager**: Уведомления
+# Or step by step:
+make infra    # Create cloud infrastructure
+make k8s      # Install Kubernetes
+make argocd   # Install ArgoCD
+make apps     # Deploy applications
+make info     # Show access information
+```
 
-### Инфраструктура
-- **Kubernetes**: k3s (легковесный дистрибутив)
-- **Ingress**: NGINX Ingress Controller
-- **Storage**: NFS для Persistent Volumes
-- **GitOps**: ArgoCD для деплоя
+### 3. Access Services
 
-## 📁 Структура проекта
+After deployment, get access information:
+
+```bash
+make info
+```
+
+Services will be available at:
+- **Airflow**: `http://<LB-IP>:32080`
+- **Grafana**: `http://<LB-IP>:32080/grafana`
+- **ArgoCD**: `kubectl port-forward svc/argocd-server -n argocd 8080:443`
+
+### 4. Cleanup
+
+```bash
+# Destroy everything
+make destroy
+
+# Emergency cleanup (if normal destroy fails)
+make destroy-emergency
+```
+
+## 📦 Components
+
+### Infrastructure
+- **Yandex Cloud VMs**: 1 master + 2 workers (configurable)
+- **k3s**: Lightweight Kubernetes distribution
+- **Load Balancer**: For external access
+- **S3 Storage**: For Terraform state and Loki logs
+
+### Applications
+- **Apache Airflow 2.8.1**
+  - KubernetesExecutor for dynamic scaling
+  - PostgreSQL backend
+  - Git-sync for DAGs
+  - StatsD metrics
+
+- **Monitoring Stack**
+  - Prometheus for metrics
+  - Grafana for visualization
+  - Loki for centralized logs
+  - AlertManager for notifications
+
+### GitOps
+- **ArgoCD**: Automated application deployment
+- **Helm**: Package management
+- **Kustomize**: Configuration management
+
+## 💰 Cost Estimation
+
+| Configuration | Resources | Cost (RUB/day) |
+|--------------|-----------|----------------|
+| Minimal | 3 VMs (preemptible, 50% CPU) | ~70-100 |
+| Standard | 3 VMs (regular, 100% CPU) | ~150-200 |
+| Production | 6 VMs (HA, 100% CPU) | ~300-500 |
+
+Check current costs: `make cost-estimate`
+
+## 📁 Project Structure
 
 ```
 .
-├── .github/workflows/    # CI/CD пайплайны
-├── infrastructure/       # Terraform и Ansible
-│   ├── terraform/       # Создание облачных ресурсов
-│   └── ansible/         # Настройка серверов
-├── kubernetes/          # Kubernetes манифесты
-│   ├── namespaces/     # Namespaces с квотами
-│   ├── argocd/         # ArgoCD приложения
-│   └── manifests/      # Дополнительные ресурсы
-├── airflow/            # DAGs и конфигурация
-│   └── dags/          # Airflow DAGs
-├── monitoring/         # Дашборды и алерты
-│   ├── dashboards/    # Grafana дашборды
-│   └── alerts/        # Prometheus алерты
-├── scripts/           # Утилиты и скрипты
-├── docs/              # Документация
-└── tests/             # Тесты
-
+├── .github/workflows/    # CI/CD pipelines
+├── infrastructure/       
+│   ├── terraform/       # Cloud resources (VMs, network, LB)
+│   └── ansible/         # k3s installation and configuration
+├── kubernetes/          
+│   ├── argocd-apps/    # ArgoCD application definitions
+│   ├── base/           # Base K8s resources (RBAC, storage)
+│   └── helm-values/    # Helm chart configurations
+├── airflow/            
+│   └── dags/           # Airflow DAG files
+├── monitoring/         
+│   ├── dashboards/     # Grafana dashboards
+│   └── alerts/         # Prometheus alert rules
+├── scripts/            # Automation scripts
+│   ├── 00-prerequisites/
+│   ├── 01-infrastructure/
+│   ├── 02-kubernetes/
+│   ├── 03-argocd/
+│   ├── 04-applications/
+│   └── 05-operations/
+└── docs/               # Additional documentation
 ```
 
-## 🚀 Использование
+## 🛠️ Configuration
 
-### Доступ к сервисам
-
-После развертывания сервисы доступны по адресам:
-
-| Сервис | URL | Логин | Пароль |
-|--------|-----|-------|--------|
-| Airflow | http://\<LB-IP\>:32080 | admin | admin |
-| Grafana | http://\<LB-IP\>:32080/grafana | admin | changeme123 |
-| ArgoCD | https://localhost:8080 (port-forward) | admin | см. скрипт |
-
-### Управление через Makefile
+### Environment Variables (.env)
 
 ```bash
-make help                # Показать все команды
-make deploy-all         # Развернуть всё
-make destroy-all        # Удалить всё
-make get-kubeconfig     # Получить kubeconfig
-make port-forward-airflow  # Локальный доступ к Airflow
+# Yandex Cloud
+YC_CLOUD_ID="your-cloud-id"
+YC_FOLDER_ID="your-folder-id"
+
+# SSH Keys
+SSH_PUBLIC_KEY_PATH="~/.ssh/k8s-airflow.pub"
+SSH_PRIVATE_KEY_PATH="~/.ssh/k8s-airflow"
+
+# S3 Storage
+TF_STATE_BUCKET="tfstate-k8s-airflow-unique"
+LOKI_S3_BUCKET="loki-k8s-airflow-unique"
+
+# Applications
+GRAFANA_ADMIN_PASSWORD="your-secure-password"
 ```
 
-### Добавление DAGs
+### Terraform Variables
 
-1. Создайте DAG в `airflow/dags/`
-2. Закоммитьте в Git
-3. Git-sync автоматически подхватит изменения
+Edit `infrastructure/terraform/terraform.tfvars`:
 
-## 💰 Стоимость
+```hcl
+# VM configuration
+master_count  = 1
+master_cpu    = 2
+master_memory = 4
 
-При минимальной конфигурации:
-- 3 прерываемые VM: ~50-70₽/день
-- Load Balancer: ~20₽/день
-- Трафик: ~10-20₽/день
-- **Итого**: ~100₽/день
+worker_count  = 2
+worker_cpu    = 2
+worker_memory = 4
 
-## 🔧 Конфигурация
+# Cost optimization
+preemptible   = true  # Use preemptible VMs
+core_fraction = 50    # Use 50% CPU
+```
 
-### Изменение параметров
+## 🚀 Advanced Usage
 
-1. **Инфраструктура**: `infrastructure/terraform/terraform.tfvars`
-2. **Airflow**: `kubernetes/argocd/apps/airflow.yaml`
-3. **Мониторинг**: `kubernetes/argocd/apps/prometheus-stack.yaml`
-
-### Масштабирование
+### Scaling Workers
 
 ```bash
-# Добавить worker ноды
+# Edit terraform.tfvars to increase worker_count
 cd infrastructure/terraform
-# Измените worker_count в terraform.tfvars
+vim terraform.tfvars  # Change worker_count = 3
+
+# Apply changes
 terraform apply
 
-# Увеличить Airflow workers
-kubectl edit application airflow -n argocd
-# Измените workers.replicas
+# Run Ansible to configure new nodes
+cd ../ansible
+ansible-playbook -i inventory/hosts.yml playbooks/install-k3s.yml
 ```
 
-## 🛠️ Troubleshooting
+### Adding Custom DAGs
 
-### Частые проблемы
+1. Add DAG files to `airflow/dags/`
+2. Commit and push to Git
+3. Git-sync will automatically update DAGs in cluster
 
-1. **Terraform ошибки**
-   ```bash
-   # Проверьте credentials
-   yc config list
-   ```
+### Custom Monitoring
 
-2. **Pods не запускаются**
-   ```bash
-   kubectl describe pod <pod-name> -n <namespace>
-   kubectl logs <pod-name> -n <namespace>
-   ```
+1. Add Grafana dashboards to `monitoring/dashboards/`
+2. Add Prometheus rules to `monitoring/alerts/`
+3. Apply via ArgoCD: `kubectl apply -f kubernetes/argocd-apps/`
 
-3. **ArgoCD не синхронизируется**
-   ```bash
-   argocd app sync <app-name>
-   argocd app get <app-name>
-   ```
+## 🔧 Troubleshooting
 
-### Полезные команды
+### Common Issues
+
+**Quota exceeded:**
+```bash
+make check-resources  # Show existing resources
+make cleanup-old      # Remove old resources
+```
+
+**Pods not starting:**
+```bash
+make status          # Check cluster status
+make events          # Show recent events
+make troubleshoot    # Run diagnostics
+```
+
+**Can't access services:**
+```bash
+make info            # Show access information
+make health-check    # Check system health
+```
+
+### Useful Commands
 
 ```bash
-# Статус кластера
-kubectl get nodes
-kubectl get pods --all-namespaces
+# Logs
+make logs-airflow    # Airflow scheduler logs
+make logs-argocd     # ArgoCD server logs
 
-# Логи Airflow
-kubectl logs -n airflow -l component=scheduler
+# Port forwarding
+make pf-airflow      # Access Airflow locally
+make pf-grafana      # Access Grafana locally
+make pf-argocd       # Access ArgoCD locally
 
-# Метрики
-kubectl top nodes
-kubectl top pods --all-namespaces
+# SSH access
+make ssh-master      # SSH to master node
+
+# Maintenance
+make backup          # Backup configurations
+make validate        # Validate configurations
+make clean           # Clean temporary files
 ```
 
-## 📚 Документация
+## 📚 Documentation
 
-- [Архитектура проекта](docs/architecture.md)
-- [Руководство по развертыванию](docs/deployment-guide.md)
-- [Решение проблем](docs/troubleshooting.md)
+- [Architecture Details](docs/architecture.md)
+- [Deployment Guide](docs/deployment-guide.md)
+- [Troubleshooting Guide](docs/troubleshooting.md)
 
-## 🤝 Вклад в проект
+## 🤝 Contributing
 
-1. Форкните репозиторий
-2. Создайте feature branch
-3. Сделайте изменения
-4. Создайте Pull Request
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
 
-## 📝 Лицензия
+## ⚠️ Security Considerations
 
-MIT License - см. [LICENSE](LICENSE)
+- **SSH Keys**: Never commit SSH keys to repository
+- **Secrets**: Use Kubernetes secrets, never hardcode
+- **Network**: Configure Security Groups properly
+- **Backups**: Regular backup important data
 
-## 🙏 Благодарности
+## 📝 License
 
-- OTUS за отличный курс по Kubernetes
-- Сообщество Apache Airflow
-- Разработчики k3s, ArgoCD, Prometheus
+MIT License - see [LICENSE](LICENSE) file
+
+## 🙏 Acknowledgments
+
+- [k3s](https://k3s.io/) - Lightweight Kubernetes
+- [Apache Airflow](https://airflow.apache.org/) - Workflow orchestration
+- [ArgoCD](https://argoproj.github.io/cd/) - GitOps deployment
+- [Prometheus](https://prometheus.io/) & [Grafana](https://grafana.com/) - Monitoring
+- [OTUS](https://otus.ru/) - For excellent Kubernetes course
 
 ---
 
-**Примечание**: Это учебный проект. Для production использования рекомендуется:
-- Использовать управляемый Kubernetes (Managed Kubernetes Service)
-- Настроить backup стратегию
-- Усилить безопасность (RBAC, Network Policies, секреты)
-- Использовать внешнюю БД для Airflow
+**Note**: This is an educational project. For production use:
+- Use Managed Kubernetes service
+- Implement proper backup strategy
+- Configure high availability
+- Set up proper security (RBAC, Network Policies, Secrets management)
+- Use external database for Airflow

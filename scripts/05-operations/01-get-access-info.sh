@@ -69,3 +69,32 @@ echo "  make pf-argocd    # Port-forward ArgoCD"
 echo "  make ssh-master   # SSH to master node"
 echo "  make status       # Show cluster status"
 echo ""
+
+# Save to file
+cat > "${PROJECT_ROOT}/access-info.txt" << EOF
+Infrastructure:
+  Load Balancer IP: ${LB_IP}
+  Master Node IP:   ${MASTER_IP}
+
+Apache Airflow:
+  URL:      http://${LB_IP}:32080
+  Username: admin
+  Password: admin
+
+Grafana:
+  URL:      http://${LB_IP}:32080/grafana
+  Username: admin
+  Password: ${GRAFANA_ADMIN_PASSWORD}
+
+ArgoCD:
+  Access:   kubectl port-forward svc/argocd-server -n argocd 8080:443
+  URL:      https://localhost:8080
+  Username: admin
+  Password: ${ARGOCD_PASSWORD}
+
+Kubernetes:
+  Config:   export KUBECONFIG=${PROJECT_ROOT}/kubeconfig
+  SSH:      ssh -i ${SSH_PRIVATE_KEY_PATH} ubuntu@${MASTER_IP}
+EOF
+
+info "Access information saved to: access-info.txt"
