@@ -1,309 +1,474 @@
-# 🚀 Kubernetes + Airflow + Monitoring Stack on Yandex Cloud
+# 🚀 Kubernetes + Airflow + Monitoring Stack на Yandex Cloud
 
-Production-ready deployment of Apache Airflow on Kubernetes (k3s) with full monitoring stack using Infrastructure as Code.
+Production-ready развертывание Apache Airflow на Kubernetes (k3s) с полным стеком мониторинга с использованием Infrastructure as Code.
 
-## 📋 Overview
+## 📋 Обзор проекта
 
-This project automates the deployment of:
-- **Apache Airflow** on Kubernetes with KubernetesExecutor
-- **Full monitoring stack** (Prometheus + Grafana + Loki)
-- **GitOps** with ArgoCD
-- **Infrastructure as Code** with Terraform and Ansible
-- **CI/CD** through GitHub Actions
+Этот проект автоматизирует развертывание полноценной платформы для оркестрации данных:
 
-## 🏗️ Architecture
+- **Apache Airflow 2.8.1** - оркестратор workflow для data pipelines
+- **Kubernetes (k3s)** - легковесная версия K8s для управления контейнерами
+- **Мониторинг** - Prometheus + Grafana + Loki для метрик и логов
+- **GitOps** - ArgoCD для автоматического развертывания из Git
+- **Infrastructure as Code** - Terraform для облачных ресурсов, Ansible для настройки
+
+### Что особенно полезно для Data Engineer:
+
+- ✅ **Airflow с KubernetesExecutor** - каждая задача в отдельном pod'е, изоляция и масштабирование
+- ✅ **Git-sync для DAGs** - автоматическая синхронизация DAG'ов из репозитория
+- ✅ **Мониторинг DAG'ов** - готовые дашборды для отслеживания выполнения задач
+- ✅ **Централизованные логи** - все логи Airflow доступны через Grafana/Loki
+- ✅ **CI/CD для DAG'ов** - push в Git → автоматическое обновление в кластере
+
+## 🏗️ Архитектура решения
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│                 │     │                 │     │                 │
-│  GitHub Actions │────▶│    Terraform    │────▶│  Yandex Cloud   │
-│                 │     │                 │     │   (3 VMs)       │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│                 │     │                 │     │   Kubernetes    │
-│     ArgoCD      │────▶│     Ansible     │────▶│   (k3s)         │
-│                 │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     Yandex Cloud                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │ Master Node │  │Worker Node 1│  │Worker Node 2│         │
+│  │   (k3s)     │  │   (k3s)     │  │   (k3s)     │         │
+│  │  • etcd     │  │ • Airflow   │  │ • Airflow   │         │
+│  │  • API      │  │   Workers   │  │   Workers   │         │
+│  │  • NFS      │  │ • Promtail  │  │ • Promtail  │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+│         │                │                │                  │
+│         └────────────────┼────────────────┘                  │
+│                          │                                   │
+│                   ┌──────────────┐                          │
+│                   │Load Balancer │                          │
+│                   │  (External)  │                          │
+│                   └──────────────┘                          │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │   Internet   │
+                    └──────────────┘
 ```
 
-## ⚡ Quick Start
+### Компоненты для работы с данными:
 
-### Prerequisites
+1. **Airflow Components**:
+   - Webserver - UI для управления DAG'ами
+   - Scheduler - планировщик задач
+   - Workers - динамические pod'ы для выполнения задач
+   - PostgreSQL - метаданные Airflow
+   - Git-sync - синхронизация DAG'ов
 
-- Yandex Cloud account with ~100₽/day budget
-- macOS or Linux (Ubuntu 20.04+)
-- Basic knowledge of Kubernetes and Terraform
+2. **Мониторинг Pipeline'ов**:
+   - Метрики выполнения DAG'ов и задач
+   - Время выполнения, успешность, ошибки
+   - Алерты при сбоях
+   - История выполнения
 
-### 1. Clone and Setup
+## ⚡ Быстрый старт
+
+### Требования
+
+- Аккаунт Yandex Cloud с бюджетом ~100₽/день
+- macOS или Linux (Ubuntu 20.04+)
+- Базовые знания Kubernetes (не обязательно глубокие)
+
+### 1. Подготовка окружения
 
 ```bash
-# Clone repository
+# Клонируем репозиторий
 git clone https://github.com/yourusername/k8s-otus-airflow.git
 cd k8s-otus-airflow
 
-# Create environment file
+# Копируем шаблон настроек
 cp .env.example .env
 
-# Edit .env with your values
-nano .env  # Set YC_CLOUD_ID, YC_FOLDER_ID, etc.
+# Редактируем настройки
+nano .env  # Указываем YC_CLOUD_ID, YC_FOLDER_ID и другие параметры
 
-# Initialize environment (install tools)
+# Устанавливаем необходимые инструменты
 make init
 ```
 
-### 2. Deploy Everything
+### 2. Развертывание всей инфраструктуры
 
 ```bash
-# Full deployment (~20-30 minutes)
+# Полное развертывание одной командой (~20-30 минут)
 make deploy
 
-# Or step by step:
-make infra    # Create cloud infrastructure
-make k8s      # Install Kubernetes
-make argocd   # Install ArgoCD
-make apps     # Deploy applications
-make info     # Show access information
+# Или пошагово для понимания процесса:
+make infra    # Создаем облачную инфраструктуру (VMs, сеть, LB)
+make k8s      # Устанавливаем Kubernetes
+make argocd   # Устанавливаем GitOps систему
+make apps     # Развертываем Airflow и мониторинг
+make info     # Показываем информацию для доступа
 ```
 
-### 3. Access Services
+### 3. Доступ к сервисам
 
-After deployment, get access information:
+После развертывания получаем информацию для доступа:
 
 ```bash
 make info
 ```
 
-Services will be available at:
-- **Airflow**: `http://<LB-IP>:32080`
-- **Grafana**: `http://<LB-IP>:32080/grafana`
-- **ArgoCD**: `kubectl port-forward svc/argocd-server -n argocd 8080:443`
+Сервисы будут доступны по адресам:
+- **Airflow UI**: `http://<LB-IP>:32080` (admin/admin)
+- **Grafana**: `http://<LB-IP>:32080/grafana` (admin/changeme123)
+- **ArgoCD**: через port-forward (см. инструкцию ниже)
 
-### 4. Cleanup
+### 4. Добавление своих DAG'ов
+
+Просто добавьте DAG файлы в папку `airflow/dags/` и сделайте commit:
 
 ```bash
-# Destroy everything
+# Создаем новый DAG
+cat > airflow/dags/my_etl_pipeline.py << 'EOF'
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.providers.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
+
+default_args = {
+    'owner': 'data-team',
+    'retries': 2,
+    'retry_delay': timedelta(minutes=5),
+}
+
+dag = DAG(
+    'my_etl_pipeline',
+    default_args=default_args,
+    description='ETL pipeline example',
+    schedule_interval='@daily',
+    start_date=datetime(2024, 1, 1),
+    catchup=False,
+    tags=['etl', 'production'],
+)
+
+# Пример задачи на Python
+def extract_data():
+    print("Extracting data from source...")
+    # Ваш код извлечения данных
+    return "data_extracted"
+
+extract_task = PythonOperator(
+    task_id='extract_data',
+    python_callable=extract_data,
+    dag=dag,
+)
+
+# Пример задачи в отдельном контейнере (например, dbt)
+transform_task = KubernetesPodOperator(
+    task_id='transform_data',
+    name='dbt-transform',
+    namespace='airflow',
+    image='your-registry/dbt:latest',
+    cmds=['dbt', 'run'],
+    dag=dag,
+)
+
+extract_task >> transform_task
+EOF
+
+# Коммитим и пушим
+git add airflow/dags/my_etl_pipeline.py
+git commit -m "Add new ETL pipeline"
+git push
+```
+
+DAG автоматически появится в Airflow через 60 секунд!
+
+### 5. Удаление инфраструктуры
+
+```bash
+# Полное удаление всех ресурсов
 make destroy
 
-# Emergency cleanup (if normal destroy fails)
+# Экстренное удаление (если обычное не работает)
 make destroy-emergency
 ```
 
-## 📦 Components
+## 💰 Стоимость решения
 
-### Infrastructure
-- **Yandex Cloud VMs**: 1 master + 2 workers (configurable)
-- **k3s**: Lightweight Kubernetes distribution
-- **Load Balancer**: For external access
-- **S3 Storage**: For Terraform state and Loki logs
+| Конфигурация | Ресурсы | Стоимость (₽/день) |
+|--------------|---------|-------------------|
+| Минимальная | 3 VM (прерываемые, 50% CPU) | ~70-100 |
+| Стандартная | 3 VM (обычные, 100% CPU) | ~150-200 |
+| Production | 6 VM (HA, 100% CPU) | ~300-500 |
 
-### Applications
-- **Apache Airflow 2.8.1**
-  - KubernetesExecutor for dynamic scaling
-  - PostgreSQL backend
-  - Git-sync for DAGs
-  - StatsD metrics
+Проверка текущих расходов: `make cost-estimate`
 
-- **Monitoring Stack**
-  - Prometheus for metrics
-  - Grafana for visualization
-  - Loki for centralized logs
-  - AlertManager for notifications
+## 📊 Мониторинг Data Pipeline'ов
 
-### GitOps
-- **ArgoCD**: Automated application deployment
-- **Helm**: Package management
-- **Kustomize**: Configuration management
+### Готовые дашборды Grafana
 
-## 💰 Cost Estimation
+1. **Airflow Overview**:
+   - Количество активных DAG'ов
+   - Успешность выполнения задач
+   - Среднее время выполнения
+   - Очередь задач
 
-| Configuration | Resources | Cost (RUB/day) |
-|--------------|-----------|----------------|
-| Minimal | 3 VMs (preemptible, 50% CPU) | ~70-100 |
-| Standard | 3 VMs (regular, 100% CPU) | ~150-200 |
-| Production | 6 VMs (HA, 100% CPU) | ~300-500 |
+2. **Task Performance**:
+   - Время выполнения по задачам
+   - Топ долгих задач
+   - История сбоев
+   - Тренды производительности
 
-Check current costs: `make cost-estimate`
+3. **System Resources**:
+   - CPU/Memory по pod'ам Airflow
+   - Использование дисков
+   - Сетевая активность
 
-## 📁 Project Structure
+### Просмотр логов
+
+Все логи Airflow централизованно собираются в Loki и доступны через Grafana:
 
 ```
-.
-├── .github/workflows/    # CI/CD pipelines
-├── infrastructure/       
-│   ├── terraform/       # Cloud resources (VMs, network, LB)
-│   └── ansible/         # k3s installation and configuration
-├── kubernetes/          
-│   ├── argocd-apps/    # ArgoCD application definitions
-│   ├── base/           # Base K8s resources (RBAC, storage)
-│   └── helm-values/    # Helm chart configurations
-├── airflow/            
-│   └── dags/           # Airflow DAG files
-├── monitoring/         
-│   ├── dashboards/     # Grafana dashboards
-│   └── alerts/         # Prometheus alert rules
-├── scripts/            # Automation scripts
-│   ├── 00-prerequisites/
-│   ├── 01-infrastructure/
-│   ├── 02-kubernetes/
-│   ├── 03-argocd/
-│   ├── 04-applications/
-│   └── 05-operations/
-└── docs/               # Additional documentation
+1. Открыть Grafana
+2. Перейти в Explore
+3. Выбрать Loki как источник
+4. Использовать запрос: {namespace="airflow", pod=~".*worker.*"}
 ```
 
-## 🛠️ Configuration
+### Настройка алертов
 
-### Environment Variables (.env)
+Пример алерта для длительных задач:
+
+```yaml
+# monitoring/alerts/airflow-custom.yaml
+- alert: AirflowTaskRunningTooLong
+  expr: airflow_task_duration > 3600  # больше часа
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Задача {{ $labels.task_id }} выполняется больше часа"
+```
+
+## 🛠️ Продвинутая настройка
+
+### Использование с Kafka
+
+Пример DAG для работы с Kafka:
+
+```python
+from airflow.providers.apache.kafka.operators.produce import ProduceToTopicOperator
+from airflow.providers.apache.kafka.operators.consume import ConsumeFromTopicOperator
+
+# Продюсер
+produce_task = ProduceToTopicOperator(
+    task_id='produce_to_kafka',
+    topic='my_topic',
+    producer_function=lambda: {"key": "value"},
+    kafka_config={'bootstrap.servers': 'kafka:9092'},
+    dag=dag,
+)
+
+# Консьюмер
+consume_task = ConsumeFromTopicOperator(
+    task_id='consume_from_kafka',
+    topics=['my_topic'],
+    consumer_config={'bootstrap.servers': 'kafka:9092'},
+    dag=dag,
+)
+```
+
+### Интеграция с dbt
+
+```python
+from airflow.providers.docker.operators.docker import DockerOperator
+
+dbt_run = DockerOperator(
+    task_id='dbt_run',
+    image='your-registry/dbt:latest',
+    command='dbt run --profiles-dir /dbt --project-dir /dbt',
+    docker_url='unix://var/run/docker.sock',
+    network_mode='bridge',
+    volumes=['/path/to/dbt:/dbt'],
+    dag=dag,
+)
+
+dbt_test = DockerOperator(
+    task_id='dbt_test',
+    image='your-registry/dbt:latest',
+    command='dbt test --profiles-dir /dbt --project-dir /dbt',
+    docker_url='unix://var/run/docker.sock',
+    network_mode='bridge',
+    volumes=['/path/to/dbt:/dbt'],
+    dag=dag,
+)
+
+dbt_run >> dbt_test
+```
+
+### Масштабирование workers
 
 ```bash
-# Yandex Cloud
-YC_CLOUD_ID="your-cloud-id"
-YC_FOLDER_ID="your-folder-id"
-
-# SSH Keys
-SSH_PUBLIC_KEY_PATH="~/.ssh/k8s-airflow.pub"
-SSH_PRIVATE_KEY_PATH="~/.ssh/k8s-airflow"
-
-# S3 Storage
-TF_STATE_BUCKET="tfstate-k8s-airflow-unique"
-LOKI_S3_BUCKET="loki-k8s-airflow-unique"
-
-# Applications
-GRAFANA_ADMIN_PASSWORD="your-secure-password"
-```
-
-### Terraform Variables
-
-Edit `infrastructure/terraform/terraform.tfvars`:
-
-```hcl
-# VM configuration
-master_count  = 1
-master_cpu    = 2
-master_memory = 4
-
-worker_count  = 2
-worker_cpu    = 2
-worker_memory = 4
-
-# Cost optimization
-preemptible   = true  # Use preemptible VMs
-core_fraction = 50    # Use 50% CPU
-```
-
-## 🚀 Advanced Usage
-
-### Scaling Workers
-
-```bash
-# Edit terraform.tfvars to increase worker_count
+# Изменить количество worker нод
 cd infrastructure/terraform
-vim terraform.tfvars  # Change worker_count = 3
+nano terraform.tfvars  # worker_count = 5
 
-# Apply changes
+# Применить изменения
 terraform apply
 
-# Run Ansible to configure new nodes
+# Обновить Ansible inventory и переустановить k3s на новых нодах
 cd ../ansible
 ansible-playbook -i inventory/hosts.yml playbooks/install-k3s.yml
 ```
 
-### Adding Custom DAGs
+## 📁 Структура проекта
 
-1. Add DAG files to `airflow/dags/`
-2. Commit and push to Git
-3. Git-sync will automatically update DAGs in cluster
-
-### Custom Monitoring
-
-1. Add Grafana dashboards to `monitoring/dashboards/`
-2. Add Prometheus rules to `monitoring/alerts/`
-3. Apply via ArgoCD: `kubectl apply -f kubernetes/argocd-apps/`
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-**Quota exceeded:**
-```bash
-make check-resources  # Show existing resources
-make cleanup-old      # Remove old resources
+```
+.
+├── airflow/                     # DAG файлы и конфигурация Airflow
+│   ├── dags/                   # Ваши DAG'и
+│   ├── plugins/                # Кастомные операторы и хуки
+│   └── requirements.txt        # Python зависимости
+│
+├── infrastructure/             
+│   ├── terraform/              # IaC для облачных ресурсов
+│   │   ├── main.tf            # Основная конфигурация
+│   │   ├── variables.tf       # Переменные
+│   │   └── outputs.tf         # Выходные данные
+│   │
+│   └── ansible/                # Конфигурация и установка k3s
+│       ├── playbooks/         # Playbook'и
+│       └── roles/             # Ansible роли
+│
+├── kubernetes/                 
+│   ├── argocd-apps/           # ArgoCD приложения
+│   ├── base/                  # Базовые K8s ресурсы
+│   └── helm-values/           # Настройки Helm чартов
+│
+├── monitoring/                 
+│   ├── dashboards/            # Grafana дашборды
+│   └── alerts/                # Prometheus алерты
+│
+├── scripts/                    # Скрипты автоматизации
+│   ├── 00-prerequisites/      # Проверка и установка зависимостей
+│   ├── 01-infrastructure/     # Управление инфраструктурой
+│   ├── 02-kubernetes/         # Установка K8s
+│   ├── 03-argocd/            # Настройка GitOps
+│   ├── 04-applications/       # Развертывание приложений
+│   └── 05-operations/         # Операционные задачи
+│
+├── .env.example               # Шаблон переменных окружения
+├── Makefile                   # Команды автоматизации
+└── README.md                  # Этот файл
 ```
 
-**Pods not starting:**
-```bash
-make status          # Check cluster status
-make events          # Show recent events
-make troubleshoot    # Run diagnostics
-```
+## 🔧 Полезные команды
 
-**Can't access services:**
-```bash
-make info            # Show access information
-make health-check    # Check system health
-```
-
-### Useful Commands
+### Работа с DAG'ами
 
 ```bash
-# Logs
-make logs-airflow    # Airflow scheduler logs
-make logs-argocd     # ArgoCD server logs
+# Просмотр логов Airflow
+make logs-airflow
 
-# Port forwarding
-make pf-airflow      # Access Airflow locally
-make pf-grafana      # Access Grafana locally
-make pf-argocd       # Access ArgoCD locally
+# Port-forward для локального доступа к Airflow
+make pf-airflow
 
-# SSH access
-make ssh-master      # SSH to master node
+# SSH на master ноду для отладки
+make ssh-master
 
-# Maintenance
-make backup          # Backup configurations
-make validate        # Validate configurations
-make clean           # Clean temporary files
+# Перезапуск scheduler'а
+kubectl rollout restart deployment airflow-scheduler -n airflow
 ```
 
-## 📚 Documentation
+### Мониторинг и отладка
 
-- [Architecture Details](docs/architecture.md)
-- [Deployment Guide](docs/deployment-guide.md)
-- [Troubleshooting Guide](docs/troubleshooting.md)
+```bash
+# Статус всех компонентов
+make status
 
-## 🤝 Contributing
+# Последние события в кластере
+make events
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
+# Проверка здоровья системы
+make health-check
 
-## ⚠️ Security Considerations
+# Детальная диагностика проблем
+make troubleshoot
+```
 
-- **SSH Keys**: Never commit SSH keys to repository
-- **Secrets**: Use Kubernetes secrets, never hardcode
-- **Network**: Configure Security Groups properly
-- **Backups**: Regular backup important data
+### Backup и восстановление
 
-## 📝 License
+```bash
+# Создание backup конфигураций
+make backup
 
-MIT License - see [LICENSE](LICENSE) file
+# Экспорт DAG'ов и конфигов
+kubectl cp airflow/airflow-scheduler-xxx:/opt/airflow/dags ./backup/dags
 
-## 🙏 Acknowledgments
+# Backup базы данных Airflow
+kubectl exec -n airflow airflow-postgresql-0 -- \
+  pg_dump -U airflow airflow > airflow-backup.sql
+```
 
-- [k3s](https://k3s.io/) - Lightweight Kubernetes
-- [Apache Airflow](https://airflow.apache.org/) - Workflow orchestration
-- [ArgoCD](https://argoproj.github.io/cd/) - GitOps deployment
-- [Prometheus](https://prometheus.io/) & [Grafana](https://grafana.com/) - Monitoring
-- [OTUS](https://otus.ru/) - For excellent Kubernetes course
+## 🚨 Решение типичных проблем
+
+### DAG не появляется в UI
+
+1. Проверить git-sync:
+```bash
+kubectl logs -n airflow -l component=git-sync
+```
+
+2. Проверить ошибки парсинга:
+```bash
+kubectl exec -n airflow deployment/airflow-scheduler -- \
+  airflow dags list-import-errors
+```
+
+### Задачи зависают в состоянии "queued"
+
+1. Проверить ресурсы кластера:
+```bash
+kubectl top nodes
+kubectl describe nodes
+```
+
+2. Проверить лимиты namespace:
+```bash
+kubectl describe resourcequota -n airflow
+```
+
+### Проблемы с логами
+
+1. Проверить Promtail:
+```bash
+kubectl get pods -n monitoring -l app.kubernetes.io/name=promtail
+kubectl logs -n monitoring -l app.kubernetes.io/name=promtail
+```
+
+2. Проверить Loki:
+```bash
+kubectl logs -n monitoring -l app.kubernetes.io/name=loki
+```
+
+## 🤝 Вклад в проект
+
+1. Fork репозитория
+2. Создайте feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit изменения (`git commit -m 'Add amazing feature'`)
+4. Push в branch (`git push origin feature/amazing-feature`)
+5. Откройте Pull Request
+
+## 📚 Дополнительные ресурсы
+
+- [Airflow Best Practices](https://airflow.apache.org/docs/apache-airflow/stable/best-practices.html)
+- [Kubernetes для Airflow](https://airflow.apache.org/docs/apache-airflow/stable/kubernetes.html)
+- [k3s документация](https://docs.k3s.io/)
+- [Yandex Cloud Terraform Provider](https://registry.terraform.io/providers/yandex-cloud/yandex/latest/docs)
+
+## 📝 Лицензия
+
+MIT License - подробности в файле [LICENSE](LICENSE)
+
+## 🙏 Благодарности
+
+- Команде Apache Airflow за отличный оркестратор
+- Rancher Labs за k3s
+- OTUS за вдохновение и знания
+- Сообществу Data Engineers за обратную связь
 
 ---
 
-**Note**: This is an educational project. For production use:
-- Use Managed Kubernetes service
-- Implement proper backup strategy
-- Configure high availability
-- Set up proper security (RBAC, Network Policies, Secrets management)
-- Use external database for Airflow
+**Примечание для Data Engineers**: Этот проект оптимизирован для запуска data pipeline'ов. Если вам нужна помощь с интеграцией специфичных инструментов (Spark, Flink, Beam), создайте issue в репозитории.

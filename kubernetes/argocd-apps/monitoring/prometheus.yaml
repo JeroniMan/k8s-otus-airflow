@@ -12,25 +12,69 @@ spec:
     targetRevision: 56.21.4
     chart: kube-prometheus-stack
     helm:
-      valuesObject:
-        # ВАЖНО: Отключаем установку CRDs через Helm
-        crds:
-          enabled: false
-
-        # Отключаем компоненты временно для упрощения
-        kubeStateMetrics:
-          enabled: true
-        nodeExporter:
-          enabled: true
-        grafana:
-          enabled: false  # Используем отдельную Grafana
-
-        # Prometheus Operator
+      values: |
+        # Название для избежания конфликтов
+        fullnameOverride: prometheus
+        
+        # Prometheus Operator с правильной конфигурацией admission webhooks
         prometheusOperator:
           enabled: true
+          
+          # Admission Webhooks включены с правильными настройками
+          admissionWebhooks:
+            enabled: true
+            failurePolicy: Ignore  # Важно! Не блокировать если webhook недоступен
+            timeoutSeconds: 10
+            
+            # Настройки для создания сертификатов
+            certManager:
+              enabled: false  # Не используем cert-manager
+              
+            patch:
+              enabled: true  # Включаем автоматическое создание сертификатов
+              image:
+                registry: registry.k8s.io
+                repository: ingress-nginx/kube-webhook-certgen
+                tag: v20221220-controller-v1.5.1-58-g787ea74b6
+                pullPolicy: IfNotPresent
+              
+              # Ресурсы для job
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 100Mi
+                requests:
+                  cpu: 10m
+                  memory: 50Mi
+              
+              # Приоритет и настройки
+              priorityClassName: ""
+              podAnnotations: {}
+              nodeSelector: {}
+              affinity: {}
+              tolerations: []
+              
+            # Service Account для admission webhook
+            createSecretJob:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 2000
+                seccompProfile:
+                  type: RuntimeDefault
+            
+            patchWebhookJob:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 2000
+                seccompProfile:
+                  type: RuntimeDefault
+          
+          # Service Account
           serviceAccount:
             create: true
             name: prometheus-operator
+          
+          # Ресурсы оператора
           resources:
             requests:
               cpu: 100m
@@ -38,17 +82,11 @@ spec:
             limits:
               cpu: 200m
               memory: 200Mi
-
-        # Prometheus
+        
+        # Остальная конфигурация
         prometheus:
-          serviceAccount:
-            create: true
-            name: prometheus
           prometheusSpec:
             retention: 7d
-            serviceAccountName: prometheus
-
-            # Упрощенное хранилище
             storageSpec:
               volumeClaimTemplate:
                 spec:
@@ -57,8 +95,6 @@ spec:
                   resources:
                     requests:
                       storage: 10Gi
-
-            # Минимальные ресурсы
             resources:
               requests:
                 cpu: 200m
@@ -66,47 +102,30 @@ spec:
               limits:
                 cpu: 500m
                 memory: 1Gi
-
-            # Селекторы для ServiceMonitor
-            serviceMonitorSelectorNilUsesHelmValues: false
-            podMonitorSelectorNilUsesHelmValues: false
-            ruleSelectorNilUsesHelmValues: false
-
-            # Отключаем дополнительные scrape configs
-            additionalScrapeConfigs: []
-
-        # AlertManager - минимальная конфигурация
+        
         alertmanager:
-          enabled: true
-          serviceAccount:
-            create: true
-            name: alertmanager
-          alertmanagerSpec:
-            replicas: 1
-            storage:
-              volumeClaimTemplate:
-                spec:
-                  storageClassName: local-path
-                  accessModes: ["ReadWriteOnce"]
-                  resources:
-                    requests:
-                      storage: 5Gi
-            resources:
-              requests:
-                cpu: 50m
-                memory: 50Mi
-              limits:
-                cpu: 100m
-                memory: 100Mi
-
-        # Отключаем правила по умолчанию для упрощения
-        defaultRules:
-          create: false
-
-        # Отключаем дополнительные компоненты
-        coreDns:
           enabled: false
-        kubeDns:
+        
+        grafana:
+          enabled: false
+        
+        # Включаем компоненты мониторинга
+        kubeStateMetrics:
+          enabled: true
+        
+        nodeExporter:
+          enabled: true
+        
+        # Отключаем ненужное для k3s
+        kubeApiServer:
+          enabled: false
+        kubelet:
+          enabled: true
+          serviceMonitor:
+            https: false
+        kubeControllerManager:
+          enabled: false
+        coreDns:
           enabled: false
         kubeEtcd:
           enabled: false
@@ -114,8 +133,9 @@ spec:
           enabled: false
         kubeProxy:
           enabled: false
-        kubeControllerManager:
-          enabled: false
+        
+        defaultRules:
+          create: false
 
   destination:
     server: https://kubernetes.default.svc
@@ -127,8 +147,7 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
-    - ServerSideApply=true  # Важно для больших манифестов
-    - Replace=true
+    - ServerSideApply=true
     retry:
       limit: 5
       backoff:

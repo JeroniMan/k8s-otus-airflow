@@ -13,15 +13,85 @@ spec:
     chart: grafana
     helm:
       valuesObject:
-        # Админ учетные данные
+        # Учетные данные
         adminUser: admin
         adminPassword: changeme123
 
-        # Персистентное хранилище
+        # Персистентность
         persistence:
           enabled: true
           storageClassName: local-path
           size: 10Gi
+
+        # Сервис
+        service:
+          type: NodePort
+          nodePort: 32300
+          port: 80
+          targetPort: 3000
+
+        # ВАЖНО: Правильный URL для Prometheus
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+            - name: Prometheus
+              type: prometheus
+              uid: prometheus-uid
+              access: proxy
+              url: http://prometheus-prometheus:9090  # Правильный URL!
+              isDefault: true
+              jsonData:
+                timeInterval: 30s
+                httpMethod: POST
+              editable: true
+
+        # Включаем sidecar для автоматического обнаружения
+        sidecar:
+          dashboards:
+            enabled: true
+            label: grafana_dashboard
+            labelValue: "1"
+            searchNamespace: monitoring
+            provider:
+              allowUiUpdates: true
+          datasources:
+            enabled: true
+            label: grafana_datasource
+            labelValue: "1"
+            searchNamespace: monitoring
+
+        # Дашборды по умолчанию
+        dashboardProviders:
+          dashboardproviders.yaml:
+            apiVersion: 1
+            providers:
+            - name: 'prometheus'
+              orgId: 1
+              folder: 'Prometheus'
+              type: file
+              disableDeletion: false
+              updateIntervalSeconds: 10
+              options:
+                path: /var/lib/grafana/dashboards/prometheus
+
+        dashboards:
+          prometheus:
+            # Prometheus 2.0 Stats
+            prometheus-stats:
+              gnetId: 2
+              revision: 2
+              datasource: Prometheus
+            # Node Exporter Full
+            node-exporter:
+              gnetId: 1860
+              revision: 29
+              datasource: Prometheus
+            # Kubernetes Cluster Monitoring
+            k8s-cluster:
+              gnetId: 7249
+              revision: 1
+              datasource: Prometheus
 
         # Ресурсы
         resources:
@@ -32,172 +102,10 @@ spec:
             cpu: 500m
             memory: 512Mi
 
-        # Отключить Ingress, использовать NodePort
-        service:
-          type: NodePort
-          nodePort: 32300
-          port: 80
-          targetPort: 3000
-
-        ingress:
-          enabled: false
-
-        # Настройка источников данных
-        datasources:
-          datasources.yaml:
-            apiVersion: 1
-            datasources:
-            # Prometheus
-            - name: Prometheus
-              type: prometheus
-              url: http://prometheus-kube-prometheus-prometheus.monitoring:9090
-              isDefault: true
-              access: proxy
-              jsonData:
-                timeInterval: 30s
-                httpMethod: POST
-              editable: true
-
-            # Loki для логов
-            - name: Loki
-              type: loki
-              url: http://loki.monitoring:3100
-              access: proxy
-              jsonData:
-                maxLines: 1000
-                derivedFields:
-                  - datasourceUid: prometheus_uid
-                    matcherRegex: "traceID=(\\w+)"
-                    name: TraceID
-                    url: "$${__value.raw}"
-              editable: true
-
-        # Провайдеры дашбордов
-        dashboardProviders:
-          dashboardproviders.yaml:
-            apiVersion: 1
-            providers:
-            - name: 'default'
-              orgId: 1
-              folder: ''
-              type: file
-              disableDeletion: false
-              updateIntervalSeconds: 10
-              allowUiUpdates: true
-              options:
-                path: /var/lib/grafana/dashboards/default
-            - name: 'kubernetes'
-              orgId: 1
-              folder: 'Kubernetes'
-              type: file
-              disableDeletion: false
-              updateIntervalSeconds: 10
-              options:
-                path: /var/lib/grafana/dashboards/kubernetes
-
-        # Автоматическая загрузка дашбордов
-        dashboards:
-          default:
-            # Дашборд для логов
-            logs-dashboard:
-              json: |
-                {
-                  "annotations": {
-                    "list": [
-                      {
-                        "builtIn": 1,
-                        "datasource": "-- Grafana --",
-                        "enable": true,
-                        "hide": true,
-                        "iconColor": "rgba(0, 211, 255, 1)",
-                        "name": "Annotations & Alerts",
-                        "type": "dashboard"
-                      }
-                    ]
-                  },
-                  "editable": true,
-                  "gnetId": null,
-                  "graphTooltip": 0,
-                  "id": null,
-                  "links": [],
-                  "panels": [
-                    {
-                      "datasource": "Loki",
-                      "gridPos": {
-                        "h": 12,
-                        "w": 24,
-                        "x": 0,
-                        "y": 0
-                      },
-                      "id": 1,
-                      "options": {
-                        "showTime": true,
-                        "showLabels": true,
-                        "showCommonLabels": false,
-                        "wrapLogMessage": true,
-                        "sortOrder": "Descending",
-                        "dedupStrategy": "none",
-                        "enableLogDetails": true,
-                        "prettifyLogMessage": false
-                      },
-                      "targets": [
-                        {
-                          "expr": "{namespace=\"airflow\"}",
-                          "refId": "A"
-                        }
-                      ],
-                      "title": "Airflow Logs",
-                      "type": "logs"
-                    }
-                  ],
-                  "schemaVersion": 30,
-                  "style": "dark",
-                  "tags": ["logs", "loki"],
-                  "templating": {
-                    "list": []
-                  },
-                  "time": {
-                    "from": "now-6h",
-                    "to": "now"
-                  },
-                  "timepicker": {},
-                  "timezone": "",
-                  "title": "Logs Dashboard",
-                  "uid": "logs-dashboard",
-                  "version": 0
-                }
-
-        # Sidecar для автоматической загрузки дашбордов
-        sidecar:
-          dashboards:
-            enabled: true
-            label: grafana_dashboard
-            searchNamespace: ALL
-            provider:
-              allowUiUpdates: true
-          datasources:
-            enabled: false
-
-        # Плагины
-        plugins:
-        - grafana-clock-panel
-        - grafana-simple-json-datasource
-        - grafana-piechart-panel
-
-        # RBAC
-        rbac:
-          create: true
-          pspEnabled: false
-
-        serviceAccount:
-          create: true
-          name: grafana
-
         # Переменные окружения
         env:
           GF_EXPLORE_ENABLED: "true"
           GF_PANELS_DISABLE_SANITIZE_HTML: "true"
-          GF_LOG_FILTERS: "rendering:debug"
 
   destination:
     server: https://kubernetes.default.svc

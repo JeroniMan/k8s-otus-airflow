@@ -3,45 +3,31 @@ kind: Application
 metadata:
   name: airflow
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  project: applications
+  project: default
   source:
     repoURL: https://airflow.apache.org/
     targetRevision: 1.11.0
     chart: airflow
     helm:
       values: |
+        # Основные настройки
         executor: LocalExecutor
         
+        # Образы
+        defaultAirflowRepository: apache/airflow
+        defaultAirflowTag: 2.8.1
+        
+        # Переменные окружения
         env:
           - name: AIRFLOW__CORE__LOAD_EXAMPLES
-            value: "False"
-          - name: AIRFLOW__CORE__EXECUTOR
-            value: "LocalExecutor"
-          - name: AIRFLOW__LOGGING__LOGGING_LEVEL
-            value: "INFO"
-          # Важно! Указываем где хранить логи
-          - name: AIRFLOW__LOGGING__BASE_LOG_FOLDER
-            value: "/opt/airflow/logs"
-          - name: AIRFLOW__SCHEDULER__CHILD_PROCESS_LOG_DIRECTORY
-            value: "/opt/airflow/logs/scheduler"
+            value: "True"
         
-        # Добавляем volumes для логов
-        extraVolumes:
-          - name: logs
-            emptyDir: {}
-        
-        extraVolumeMounts:
-          - name: logs
-            mountPath: /opt/airflow/logs
-        
+        # Webserver
         webserver:
-          extraVolumes:
-            - name: logs
-              emptyDir: {}
-          extraVolumeMounts:
-            - name: logs
-              mountPath: /opt/airflow/logs
+          replicas: 1
           service:
             type: NodePort
             ports:
@@ -49,6 +35,7 @@ spec:
                 port: 8080
                 targetPort: 8080
                 nodePort: 32080
+          
           defaultUser:
             enabled: true
             role: Admin
@@ -58,22 +45,19 @@ spec:
             lastName: User
             password: admin
         
+        # Scheduler
         scheduler:
-          extraVolumes:
-            - name: logs
-              emptyDir: {}
-          extraVolumeMounts:
-            - name: logs
-              mountPath: /opt/airflow/logs
+          replicas: 1
         
+        # Workers - для LocalExecutor просто устанавливаем replicas в 0
         workers:
-          extraVolumes:
-            - name: logs
-              emptyDir: {}
-          extraVolumeMounts:
-            - name: logs
-              mountPath: /opt/airflow/logs
+          replicas: 0
         
+        # Redis отключен
+        redis:
+          enabled: false
+        
+        # PostgreSQL включен
         postgresql:
           enabled: true
           auth:
@@ -82,40 +66,41 @@ spec:
             password: airflow
             database: airflow
         
-        redis:
-          enabled: false
-        
+        # Flower отключен
         flower:
           enabled: false
         
-        statsd:
+        # Triggerer отключен
+        triggerer:
           enabled: false
         
-        logs:
-          persistence:
-            enabled: false
-        
+        # DAGs из Git
         dags:
-          persistence:
-            enabled: false
           gitSync:
             enabled: true
             repo: https://github.com/JeroniMan/k8s-otus-airflow.git
             branch: main
-            subPath: "airflow/dags"
+            subPath: airflow/dags
             wait: 60
         
-        createUserJob:
-          useHelmHooks: false
-        
-        migrateDatabaseJob:
-          enabled: true
-          useHelmHooks: false
+        # Ingress отключен
+        ingress:
+          enabled: false
 
   destination:
     server: https://kubernetes.default.svc
     namespace: airflow
 
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
     - CreateNamespace=true
+    - Replace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
