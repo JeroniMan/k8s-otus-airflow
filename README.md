@@ -1,3 +1,13 @@
+## Результаты
+<img width="1993" height="1059" alt="Screenshot 2025-07-11 at 07 33 48" src="https://github.com/user-attachments/assets/6427e737-97db-4f8d-bda8-e374c36330d6" />
+<img width="1936" height="379" alt="Screenshot 2025-07-11 at 07 37 37" src="https://github.com/user-attachments/assets/dc7d36cb-a680-43ec-934e-150e9fa5dfcc" />
+<img width="1145" height="759" alt="Screenshot 2025-07-11 at 07 37 30" src="https://github.com/user-attachments/assets/31d6d137-5c85-4998-af0f-9e57db9c2be1" />
+<img width="1993" height="1101" alt="Screenshot 2025-07-11 at 07 36 29" src="https://github.com/user-attachments/assets/13ba8e25-151a-4b60-b94e-16908809ce8e" />
+<img width="1990" height="985" alt="Screenshot 2025-07-11 at 07 35 31" src="https://github.com/user-attachments/assets/e787a21d-b487-4d24-bd15-8d31ab5f7696" />
+<img width="1992" height="1357" alt="Screenshot 2025-07-11 at 07 34 09" src="https://github.com/user-attachments/assets/ee670a04-009b-44d8-8ca3-c976dea1d4eb" />
+
+
+
 # 🚀 Kubernetes + Airflow + Monitoring Stack на Yandex Cloud
 
 Production-ready развертывание Apache Airflow на Kubernetes (k3s) с полным стеком мониторинга с использованием Infrastructure as Code.
