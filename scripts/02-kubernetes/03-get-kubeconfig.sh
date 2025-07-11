@@ -35,7 +35,18 @@ export KUBECONFIG="${PROJECT_ROOT}/kubeconfig"
 info "Testing connection to cluster..."
 if kubectl cluster-info &>/dev/null; then
     success "Successfully connected to k3s cluster!"
-    kubectl version --short
+
+    # Show version without --short flag
+    echo ""
+    info "Kubernetes version:"
+    kubectl version --client -o yaml | grep -E "gitVersion|platform" | sed 's/^/  /'
+
+    # Show server version if available
+    if kubectl version -o yaml 2>/dev/null | grep -q "serverVersion"; then
+        echo ""
+        info "Server version:"
+        kubectl version -o yaml 2>/dev/null | grep -A3 "serverVersion:" | grep -E "gitVersion|platform" | sed 's/^/  /'
+    fi
 else
     error "Failed to connect to cluster"
     exit 1

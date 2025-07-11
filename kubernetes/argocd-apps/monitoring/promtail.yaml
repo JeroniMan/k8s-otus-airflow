@@ -13,58 +13,57 @@ spec:
     chart: promtail
     helm:
       valuesObject:
+        # Конфигурация Promtail
         config:
+          # Сервер Loki
           clients:
-          - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+          - url: http://loki.monitoring:3100/loki/api/v1/push
             tenant_id: 1
+
+          # Позиции (где Promtail сохраняет прогресс)
+          positions:
+            filename: /run/promtail/positions.yaml
+
+          # Конфигурация scrape
           snippets:
-            pipelineStages:
-            - cri: {}
-            - json:
-                expressions:
-                  output: log
-                  stream: stream
-                  attrs:
-            - json:
-                expressions:
-                  msg: msg
-                  level: level
-                  ts: time
-                source: output
-            - regex:
-                expression: '(?P<pod_uid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
-                source: filename
-            - labels:
-                stream:
-                level:
-                pod_uid:
-            - timestamp:
-                format: RFC3339
-                source: ts
-            - output:
-                source: msg
-        resources:
-          limits:
-            cpu: 200m
-            memory: 256Mi
-          requests:
-            cpu: 100m
-            memory: 128Mi
+            # Общие настройки
+            scrapeConfigs: |
+              - job_name: kubernetes-pods
+                kubernetes_sd_configs:
+                - role: pod
+                pipeline_stages:
+                - cri: {}
+                - json:
+                    expressions:
+                      level: level
+                      msg: msg
+                      ts: time
+                    source: log
+                - labels:
+                    level:
+                - timestamp:
+                    format: RFC3339
+                    source: ts
+                    action: replace
+                relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_label_app]
+                  target_label: app
+                - source_labels: [__meta_kubernetes_pod_label_release]
+                  target_label: release
+                - source_labels: [__meta_kubernetes_namespace]
+                  target_label: namespace
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: pod
+                - source_labels: [__meta_kubernetes_container_name]
+                  target_label: container
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  target_label: node
+
+        # DaemonSet для запуска на всех нодах
         daemonset:
           enabled: true
-        rbac:
-          create: true
-          pspEnabled: false
-        serviceAccount:
-          create: true
-          name: promtail
-        tolerations:
-        - key: node-role.kubernetes.io/master
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
+
+        # Монтирование директорий с логами
         defaultVolumes:
         - name: run
           hostPath:
@@ -75,6 +74,7 @@ spec:
         - name: containers
           hostPath:
             path: /var/lib/docker/containers
+
         defaultVolumeMounts:
         - name: run
           mountPath: /run/promtail
@@ -84,21 +84,47 @@ spec:
         - name: containers
           mountPath: /var/lib/docker/containers
           readOnly: true
-        extraVolumes:
-        - name: journal
-          hostPath:
-            path: /var/log/journal
-        extraVolumeMounts:
-        - name: journal
-          mountPath: /var/log/journal
-          readOnly: true
+
+        # Толерации для запуска на всех нодах включая master
+        tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+        # Ресурсы
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+
+        # ServiceMonitor для мониторинга самого Promtail
         serviceMonitor:
           enabled: true
           labels:
             prometheus: kube-prometheus
+
+        # Не использовать системный журнал по умолчанию
+        extraArgs:
+        - -config.expand-env=true
+
+        # Безопасность
+        podSecurityPolicy:
+          create: false
+
+        rbac:
+          create: true
+          pspEnabled: false
+
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
+
   syncPolicy:
     automated:
       prune: true

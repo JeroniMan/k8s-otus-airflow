@@ -1,23 +1,35 @@
+# StorageClass для k3s с local-path provisioner
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false
+---
+# Алиас yc-network-ssd -> local-path для совместимости
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: yc-network-ssd
   annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
-provisioner: disk-csi-driver.mks.yandexcloud.io
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
-allowVolumeExpansion: true
-parameters:
-  type: network-ssd
-  csi.storage.k8s.io/fstype: ext4
+allowVolumeExpansion: false
 ---
+# Алиас yc-network-hdd -> local-path для совместимости
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: yc-network-hdd
-provisioner: disk-csi-driver.mks.yandexcloud.io
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
-allowVolumeExpansion: true
-parameters:
-  type: network-hdd
-  csi.storage.k8s.io/fstype: ext4
+allowVolumeExpansion: false

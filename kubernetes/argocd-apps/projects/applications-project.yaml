@@ -7,8 +7,9 @@ spec:
   description: Business applications (Airflow, etc)
 
   sourceRepos:
-  - 'https://airflow.apache.org/docs/helm-chart/stable/index.yaml'
+  - 'https://airflow.apache.org/'  # Добавить этот репозиторий
   - 'https://github.com/JeroniMan/k8s-otus-airflow'
+  - '*'  # Или разрешить все репозитории
 
   destinations:
   - namespace: airflow

@@ -12,7 +12,11 @@ spec:
   - 'https://github.com/JeroniMan/k8s-otus-airflow'
 
   destinations:
+  # Разрешить monitoring namespace
   - namespace: monitoring
+    server: https://kubernetes.default.svc
+  # Разрешить kube-system для сервисов мониторинга
+  - namespace: kube-system
     server: https://kubernetes.default.svc
 
   clusterResourceWhitelist:

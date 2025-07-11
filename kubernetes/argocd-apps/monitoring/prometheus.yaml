@@ -13,81 +13,52 @@ spec:
     chart: kube-prometheus-stack
     helm:
       valuesObject:
-        grafana:
-          enabled: false
-        prometheus:
-          prometheusSpec:
-            retention: 30d
-            storageSpec:
-              volumeClaimTemplate:
-                spec:
-                  storageClassName: yc-network-ssd
-                  accessModes: ["ReadWriteOnce"]
-                  resources:
-                    requests:
-                      storage: 50Gi
-            resources:
-              requests:
-                cpu: 500m
-                memory: 2Gi
-              limits:
-                cpu: 2
-                memory: 4Gi
-            externalLabels:
-              cluster: yandex-managed-k8s
-              region: ru-central1
-            serviceMonitorSelectorNilUsesHelmValues: false
-            podMonitorSelectorNilUsesHelmValues: false
-            ruleSelectorNilUsesHelmValues: false
-        alertmanager:
-          alertmanagerSpec:
-            replicas: 1
-            retention: 120h
-            storage:
-              volumeClaimTemplate:
-                spec:
-                  storageClassName: yc-network-ssd
-                  accessModes: ["ReadWriteOnce"]
-                  resources:
-                    requests:
-                      storage: 10Gi
-            resources:
-              requests:
-                cpu: 100m
-                memory: 128Mi
-              limits:
-                cpu: 500m
-                memory: 512Mi
-        kubeStateMetrics:
-          enabled: true
+        # Отключить некоторые компоненты временно
         nodeExporter:
           enabled: true
+        kubeStateMetrics:
+          enabled: true
         prometheusOperator:
-          resources:
-            requests:
-              cpu: 100m
-              memory: 100Mi
-            limits:
-              cpu: 200m
-              memory: 200Mi
+          # Создать ServiceAccount
+          serviceAccount:
+            create: true
+            name: prometheus-operator
+        prometheus:
+          serviceAccount:
+            create: true
+            name: prometheus
+          prometheusSpec:
+            serviceAccountName: prometheus
+            # ... остальные настройки
+        # Добавить эти настройки
+        defaultRules:
+          create: true
+          rules:
+            alertmanager: true
+            etcd: false
+            general: true
+            k8s: true
+            kubeApiserver: false
+            kubeApiserverAvailability: false
+            kubeApiserverError: false
+            kubeApiserverSlos: false
+            kubelet: true
+            kubePrometheusGeneral: true
+            kubePrometheusNodeAlerting: true
+            kubePrometheusNodeRecording: true
+            kubernetesAbsent: true
+            kubernetesApps: true
+            kubernetesResources: true
+            kubernetesStorage: true
+            kubernetesSystem: true
+            network: true
+            node: true
+            prometheus: true
+            prometheusOperator: true
+            time: true
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
   syncPolicy:
     automated:
       prune: true
-      selfHeal: true
-    syncOptions:
-    - CreateNamespace=true
-    - ServerSideApply=true
-  ignoreDifferences:
-  - group: admissionregistration.k8s.io
-    kind: MutatingWebhookConfiguration
-    name: prometheus-kube-prometheus-admission
-    jsonPointers:
-    - /webhooks/0/clientConfig/caBundle
-  - group: admissionregistration.k8s.io
-    kind: ValidatingWebhookConfiguration
-    name: prometheus-kube-prometheus-admission
-    jsonPointers:
-    - /webhooks/0/clientConfig/caBundle
