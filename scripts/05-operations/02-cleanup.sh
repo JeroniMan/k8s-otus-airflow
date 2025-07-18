@@ -59,5 +59,6 @@ info "Cleaning local files..."
 rm -f "${PROJECT_ROOT}/kubeconfig"
 rm -f "${PROJECT_ROOT}/argocd-password.txt"
 rm -f "${PROJECT_ROOT}/access-info.txt"
+rm -rf "${PROJECT_ROOT}/.artifacts"
 
 success "Kubernetes resources cleaned up!"

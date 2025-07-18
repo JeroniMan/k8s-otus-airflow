@@ -130,4 +130,7 @@ argocd-password.txt
 
 # Helm
 **/charts/*.tgz
-**/requirements.lock
+**/requirements.lockyc-terraform-key.json
+.artifacts/
+.env*
+access-info.txt

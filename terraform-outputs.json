@@ -26,7 +26,7 @@
   "get_kubeconfig_command": {
     "sensitive": false,
     "type": "string",
-    "value": "ssh -i /Users/germankovalev/.ssh/k8s-airflow ubuntu@46.21.245.246 'sudo cat /etc/rancher/k3s/k3s.yaml' \u003e kubeconfig \u0026\u0026 sed -i 's/127.0.0.1/46.21.245.246/g' kubeconfig"
+    "value": "ssh -i /Users/germankovalev/.ssh/k8s-airflow ubuntu@130.193.39.210 'sudo cat /etc/rancher/k3s/k3s.yaml' \u003e kubeconfig \u0026\u0026 sed -i 's/127.0.0.1/130.193.39.210/g' kubeconfig"
   },
   "kubeconfig_path": {
     "sensitive": false,
@@ -36,12 +36,12 @@
   "load_balancer_ip": {
     "sensitive": false,
     "type": "string",
-    "value": "51.250.47.103"
+    "value": "130.193.45.195"
   },
   "master_internal_ip": {
     "sensitive": false,
     "type": "string",
-    "value": "10.0.1.11"
+    "value": "10.0.1.26"
   },
   "master_ips": {
     "sensitive": false,
@@ -59,8 +59,8 @@
     ],
     "value": {
       "master-0": {
-        "private_ip": "10.0.1.11",
-        "public_ip": "46.21.245.246"
+        "private_ip": "10.0.1.26",
+        "public_ip": "130.193.39.210"
       }
     }
   },
@@ -75,9 +75,9 @@
       }
     ],
     "value": {
-      "network_id": "enp5vsf7m0cao5m14s1c",
+      "network_id": "enpbj9r21653m155jicd",
       "subnet_cidr": "10.0.1.0/24",
-      "subnet_id": "e9bdq5rjad62ssjrj9n8"
+      "subnet_id": "e9b00rh5oset8eus8gdl"
     }
   },
   "service_urls": {
@@ -90,14 +90,14 @@
       }
     ],
     "value": {
-      "airflow": "http://51.250.47.103:32080",
-      "grafana": "http://51.250.47.103:32080/grafana"
+      "airflow": "http://130.193.45.195:32080",
+      "grafana": "http://130.193.45.195:32080/grafana"
     }
   },
   "ssh_master_command": {
     "sensitive": false,
     "type": "string",
-    "value": "ssh -i /Users/germankovalev/.ssh/k8s-airflow ubuntu@46.21.245.246"
+    "value": "ssh -i /Users/germankovalev/.ssh/k8s-airflow ubuntu@130.193.39.210"
   },
   "worker_ips": {
     "sensitive": false,
@@ -122,12 +122,12 @@
     ],
     "value": {
       "worker-0": {
-        "private_ip": "10.0.1.23",
-        "public_ip": "46.21.244.86"
+        "private_ip": "10.0.1.8",
+        "public_ip": "158.160.34.106"
       },
       "worker-1": {
-        "private_ip": "10.0.1.15",
-        "public_ip": "84.201.130.251"
+        "private_ip": "10.0.1.31",
+        "public_ip": "158.160.51.72"
       }
     }
   }

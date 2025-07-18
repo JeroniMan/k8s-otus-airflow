@@ -13,79 +13,133 @@ spec:
     chart: airflow
     helm:
       values: |
-        # Основные настройки
-        executor: LocalExecutor
-        
-        # Образы
+        airflowVersion: 2.8.1
         defaultAirflowRepository: apache/airflow
         defaultAirflowTag: 2.8.1
-        
-        # Переменные окружения
-        env:
-          - name: AIRFLOW__CORE__LOAD_EXAMPLES
-            value: "True"
-        
-        # Webserver
+
+        executor: LocalExecutor
+
+        serviceAccount:
+          create: true
+          name: airflow
+
+        createUserJob:
+          useHelmHooks: false
+          applyCustomEnv: false
+          serviceAccount:
+            create: true
+            name: airflow-create-user-job
+
+        migrateDatabaseJob:
+          useHelmHooks: false
+          applyCustomEnv: false
+          serviceAccount:
+            create: true
+            name: airflow-migrate-database-job
+
+        webserverSecretKey: "af7CN44BBsdfZOE8"
+        fernetKey: "Z2uDm0ZL60fXNkEXG8LW99Ki2-cUFw9rm_aqhPdiTKU="
+
+        defaultAirflowUsername: admin
+        defaultAirflowPassword: admin
+        defaultAirflowFirstName: Admin
+        defaultAirflowLastName: User
+        defaultAirflowEmail: admin@example.com
+        defaultAirflowRole: Admin
+
         webserver:
           replicas: 1
+          serviceAccount:
+            create: true
+            name: airflow-webserver
           service:
             type: NodePort
             ports:
               - name: airflow-ui
                 port: 8080
                 targetPort: 8080
-                nodePort: 32080
-          
-          defaultUser:
-            enabled: true
-            role: Admin
-            username: admin
-            email: admin@example.com
-            firstName: Admin
-            lastName: User
-            password: admin
-        
-        # Scheduler
+                nodePort: 30880
+
         scheduler:
           replicas: 1
-        
-        # Workers - для LocalExecutor просто устанавливаем replicas в 0
-        workers:
-          replicas: 0
-        
-        # Redis отключен
-        redis:
-          enabled: false
-        
-        # PostgreSQL включен
+          serviceAccount:
+            create: true
+            name: airflow-scheduler
+
         postgresql:
           enabled: true
           auth:
             postgresPassword: postgres
-            username: airflow
-            password: airflow
+            username: postgres
+            password: postgres
             database: airflow
-        
-        # Flower отключен
+          persistence:
+            enabled: true
+            size: 8Gi
+            storageClass: local-path
+          service:
+            port: 5432
+
+        data:
+          metadataConnection:
+            user: postgres
+            pass: postgres
+            protocol: postgresql
+            host: ~
+            port: 5432
+            db: airflow
+            sslmode: disable
+
+        redis:
+          enabled: false
+
+        workers:
+          replicas: 0
+          serviceAccount:
+            create: true
+            name: airflow-worker
+
         flower:
           enabled: false
-        
-        # Triggerer отключен
-        triggerer:
-          enabled: false
-        
-        # DAGs из Git
+
+        statsd:
+          enabled: true
+          serviceAccount:
+            create: true
+            name: airflow-statsd
+
         dags:
+          persistence:
+            enabled: false
           gitSync:
             enabled: true
             repo: https://github.com/JeroniMan/k8s-otus-airflow.git
             branch: main
-            subPath: airflow/dags
+            rev: HEAD
+            depth: 1
+            maxFailures: 0
+            subPath: "airflow/dags"
             wait: 60
-        
-        # Ingress отключен
+            containerName: git-sync
+            uid: 65533
+
+        logs:
+          persistence:
+            enabled: true
+            size: 100Gi
+            storageClassName: local-path
+
         ingress:
           enabled: false
+
+        rbac:
+          create: true
+          createSCCRoleBinding: false
+
+        securityContext:
+          runAsUser: 50000
+          runAsGroup: 0
+          fsGroup: 0
 
   destination:
     server: https://kubernetes.default.svc
@@ -97,7 +151,8 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
-    - Replace=true
+    - ServerSideApply=true
+    - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

@@ -18,9 +18,9 @@ terraform {
     endpoints = {
       s3 = "https://storage.yandexcloud.net"
     }
-    bucket = "tfstate-k8s-airflow-2025-07-09"
-    region = "ru-central1"
-    key    = "terraform.tfstate"
+    bucket   = "tfstate-k8s-airflow-2025-07-09"
+    region   = "ru-central1"
+    key      = "terraform.tfstate"
 
     skip_region_validation      = true
     skip_credentials_validation = true
@@ -212,69 +212,25 @@ resource "yandex_lb_target_group" "k8s_workers" {
   }
 }
 
-# Network Load Balancer для доступа к сервисам
+# Network Load Balancer для доступа к Ingress
 resource "yandex_lb_network_load_balancer" "k8s_lb" {
   name   = "${local.k8s_cluster_name}-lb"
   labels = local.common_labels
 
-  # Airflow
   listener {
-    name = "airflow"
-    port = 8080
+    name = "http-listener"
+    port = 32080
     external_address_spec {
       ip_version = "ipv4"
     }
-    target_port = 30880
   }
 
-  # Grafana
   listener {
-    name = "grafana"
-    port = 3000
+    name = "https-listener"
+    port = 32443
     external_address_spec {
       ip_version = "ipv4"
     }
-    target_port = 30300
-  }
-
-  # Prometheus
-  listener {
-    name = "prometheus"
-    port = 9090
-    external_address_spec {
-      ip_version = "ipv4"
-    }
-    target_port = 30090
-  }
-
-  # ArgoCD
-  listener {
-    name = "argocd"
-    port = 8443
-    external_address_spec {
-      ip_version = "ipv4"
-    }
-    target_port = 30443
-  }
-
-  # Ingress HTTP (оставляем для будущего использования)
-  listener {
-    name = "http"
-    port = 80
-    external_address_spec {
-      ip_version = "ipv4"
-    }
-    target_port = 32080
-  }
-
-  # Ingress HTTPS
-  listener {
-    name = "https"
-    port = 443
-    external_address_spec {
-      ip_version = "ipv4"
-    }
-    target_port = 32443
   }
 
   attached_target_group {

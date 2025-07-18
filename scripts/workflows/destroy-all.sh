@@ -68,24 +68,52 @@ if [ "$delete_s3" = "yes" ]; then
     info "Deleting S3 buckets..."
     yc storage bucket delete --name "$TF_STATE_BUCKET" 2>/dev/null || warning "Failed to delete $TF_STATE_BUCKET"
     yc storage bucket delete --name "$LOKI_S3_BUCKET" 2>/dev/null || warning "Failed to delete $LOKI_S3_BUCKET"
-
-    # Clean up service account
-    info "Cleaning up service account..."
-    yc iam service-account delete --name s3-storage-sa 2>/dev/null || true
 fi
 
-# Step 5: Final cleanup
-info "Final cleanup..."
-rm -f "${PROJECT_ROOT}/.env.bak"*
-rm -f "${PROJECT_ROOT}/infrastructure/terraform/.terraform.lock.hcl"
-rm -rf "${PROJECT_ROOT}/infrastructure/terraform/.terraform"
-rm -f "${PROJECT_ROOT}/infrastructure/terraform/destroy.tfplan"
-rm -f "${PROJECT_ROOT}/infrastructure/terraform/tfplan"
+# Step 4.5: Clean up service accounts and access keys
+echo ""
+read -p "Do you want to delete ALL service accounts and access keys? (yes/no): " delete_sa
 
-echo ""
-echo -e "${GREEN}════════════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}✓ Infrastructure has been completely destroyed${NC}"
-echo -e "${GREEN}════════════════════════════════════════════════════════════════${NC}"
-echo ""
-info "Backup of configurations saved in: $BACKUP_DIR"
-info "Thank you for using k3s-airflow-infrastructure!"
+if [ "$delete_sa" = "yes" ]; then
+    info "Cleaning up ALL service accounts..."
+
+    # Delete S3 service account
+    SA_NAME="s3-storage-sa"
+    if yc iam service-account get "$SA_NAME" &>/dev/null; then
+        # Delete all access keys first
+        info "Deleting access keys for $SA_NAME..."
+        ACCESS_KEYS=$(yc iam access-key list --service-account-name "$SA_NAME" --format json | jq -r '.[].id')
+        for key_id in $ACCESS_KEYS; do
+            yc iam access-key delete --id "$key_id" || true
+        done
+
+        # Delete the service account
+        info "Deleting service account $SA_NAME..."
+        yc iam service-account delete --name "$SA_NAME" || true
+    fi
+
+    # Delete terraform service account
+    SA_NAME="terraform-sa"
+    if yc iam service-account get "$SA_NAME" &>/dev/null; then
+        # Delete all IAM keys first
+        info "Deleting IAM keys for $SA_NAME..."
+        IAM_KEYS=$(yc iam key list --service-account-name "$SA_NAME" --format json | jq -r '.[].id')
+        for key_id in $IAM_KEYS; do
+            yc iam key delete --id "$key_id" || true
+        done
+
+        # Delete the service account
+        info "Deleting service account $SA_NAME..."
+        yc iam service-account delete --name "$SA_NAME" || true
+    fi
+
+    # Clean up key files
+    rm -f "${PROJECT_ROOT}/yc-terraform-key.json"
+    rm -f "${PROJECT_ROOT}/key.json"
+    rm -rf "${PROJECT_ROOT}/.artifacts"
+
+    # Clean up .env entries
+    info "Cleaning up .env entries..."
+    if [ -f "${PROJECT_ROOT}/.env" ]; then
+        sed -i.bak '/^export ACCESS_KEY=/d' "${PROJECT_ROOT}/.env"
+        sed -i.bak '/^export SECRET_KE

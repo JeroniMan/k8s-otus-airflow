@@ -46,6 +46,31 @@ setup-yc: ## Setup Yandex Cloud CLI
 init: fix-permissions check install-tools setup-yc ## Initialize environment (fix permissions + check + install + setup)
 	@echo "✓ Environment initialized"
 
+# ========== Service Account Management ==========
+
+.PHONY: setup-sa
+setup-sa: ## Setup all service accounts
+	@scripts/00-prerequisites/04-setup-service-accounts.sh
+
+.PHONY: check-sa
+check-sa: ## Check service accounts status
+	@echo "Checking service accounts..."
+	@yc iam service-account list --format=table
+	@echo ""
+	@if [ -f ".artifacts/check-service-accounts.sh" ]; then \
+		.artifacts/check-service-accounts.sh; \
+	else \
+		echo "Run 'make setup-sa' first"; \
+	fi
+
+.PHONY: fix-env
+fix-env: ## Fix environment issues
+	@scripts/00-prerequisites/05-check-environment.sh
+
+.PHONY: init-complete
+init-complete: ## Complete initialization from scratch
+	@scripts/00-prerequisites/00-init-all.sh
+
 # ========== STAGE 1: Infrastructure ==========
 
 .PHONY: check-resources
@@ -172,6 +197,97 @@ health-check: ## Check system health
 troubleshoot: ## Troubleshoot cluster issues
 	@scripts/05-operations/05-troubleshoot.sh
 
+# ========== External Access ==========
+
+.PHONY: configure-access
+configure-access: ## Configure external access to applications
+	@scripts/04-applications/05-configure-external-access.sh
+
+.PHONY: show-urls
+show-urls: ## Show all application URLs
+	@echo "Application URLs:"
+	@echo ""
+	@LB_IP=$$(cd infrastructure/terraform && terraform output -raw load_balancer_ip 2>/dev/null || echo "N/A"); \
+	if [ "$$LB_IP" != "N/A" ]; then \
+		echo "Load Balancer IP: $$LB_IP"; \
+		echo ""; \
+		echo "Via Ingress (recommended):"; \
+		echo "  Airflow: http://$$LB_IP:32080"; \
+		echo "  Grafana: http://$$LB_IP:32080/grafana"; \
+		echo "  ArgoCD:  http://$$LB_IP:32080/argocd"; \
+		echo ""; \
+		echo "Direct NodePort access:"; \
+		echo "  Airflow: http://$$LB_IP:30880"; \
+		echo "  Grafana: http://$$LB_IP:30300"; \
+		echo ""; \
+		echo "Credentials:"; \
+		echo "  Airflow: admin / admin"; \
+		echo "  Grafana: admin / changeme123"; \
+		if [ -f "argocd-password.txt" ]; then \
+			echo "  ArgoCD:  admin / $$(cat argocd-password.txt)"; \
+		fi; \
+	else \
+		echo "Load Balancer not found. Run 'make tf-apply' first."; \
+	fi
+
+.PHONY: test-access
+test-access: ## Test external access to all services
+	@if [ -f "check-services.sh" ]; then \
+		./check-services.sh; \
+	else \
+		LB_IP=$$(cd infrastructure/terraform && terraform output -raw load_balancer_ip 2>/dev/null || echo "N/A"); \
+		if [ "$$LB_IP" != "N/A" ]; then \
+			echo "Testing service availability..."; \
+			echo ""; \
+			curl -s -o /dev/null -w "Airflow (Ingress): %{http_code}\n" http://$$LB_IP:32080 || true; \
+			curl -s -o /dev/null -w "Grafana (Ingress): %{http_code}\n" http://$$LB_IP:32080/grafana || true; \
+			curl -s -o /dev/null -w "Airflow (Direct):  %{http_code}\n" http://$$LB_IP:30880 || true; \
+			curl -s -o /dev/null -w "Grafana (Direct):  %{http_code}\n" http://$$LB_IP:30300 || true; \
+		fi; \
+	fi
+
+.PHONY: open-airflow
+open-airflow: ## Open Airflow in browser
+	@LB_IP=$$(cd infrastructure/terraform && terraform output -raw load_balancer_ip 2>/dev/null); \
+	if [ -n "$$LB_IP" ]; then \
+		echo "Opening Airflow at http://$$LB_IP:32080"; \
+		open "http://$$LB_IP:32080" 2>/dev/null || xdg-open "http://$$LB_IP:32080" 2>/dev/null || echo "Please open manually"; \
+	else \
+		echo "Load Balancer IP not found"; \
+	fi
+
+.PHONY: open-grafana
+open-grafana: ## Open Grafana in browser
+	@LB_IP=$$(cd infrastructure/terraform && terraform output -raw load_balancer_ip 2>/dev/null); \
+	if [ -n "$$LB_IP" ]; then \
+		echo "Opening Grafana at http://$$LB_IP:32080/grafana"; \
+		open "http://$$LB_IP:32080/grafana" 2>/dev/null || xdg-open "http://$$LB_IP:32080/grafana" 2>/dev/null || echo "Please open manually"; \
+	else \
+		echo "Load Balancer IP not found"; \
+	fi
+
+.PHONY: fix-ingress
+fix-ingress: ## Fix/reinstall Ingress controller
+	@echo "Reinstalling Ingress NGINX controller..."
+	@kubectl delete namespace ingress-nginx --ignore-not-found
+	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/baremetal/deploy.yaml
+	@echo "Waiting for controller to be ready..."
+	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s
+	@echo "Patching NodePorts..."
+	@kubectl patch svc ingress-nginx-controller -n ingress-nginx --type='json' \
+		-p='[{"op": "replace", "path": "/spec/ports/0/nodePort", "value":32080}, \
+		     {"op": "replace", "path": "/spec/ports/1/nodePort", "value":32443}]'
+	@echo "Applying Ingress rules..."
+	@kubectl apply -f kubernetes/base/ingress-configuration.yaml || true
+	@echo "Ingress controller fixed!"
+
+.PHONY: add-nodeport
+add-nodeport: ## Add NodePort services for direct access
+	@echo "Creating NodePort services..."
+	@kubectl apply -f kubernetes/patches/services-nodeport.yaml
+	@echo "NodePort services created!"
+	@make show-urls
+
 # ========== Main Workflows ==========
 
 .PHONY: deploy
@@ -181,6 +297,7 @@ deploy: ## 🚀 Full deployment
 	@$(MAKE) k8s
 	@$(MAKE) argocd
 	@$(MAKE) apps
+	@$(MAKE) configure-access
 	@$(MAKE) info
 	@echo "✓ Deployment complete!"
 
@@ -197,6 +314,16 @@ destroy-emergency: ## 💥 Emergency destroy (when normal destroy fails)
 	@scripts/workflows/emergency-destroy.sh
 
 # ========== Quick Access ==========
+
+.PHONY: airflow
+airflow: ## Quick access to Airflow UI
+	@make show-urls | grep -A1 "Via Ingress" | grep Airflow || echo "Run 'make configure-access' first"
+	@make open-airflow
+
+.PHONY: grafana
+grafana: ## Quick access to Grafana
+	@make show-urls | grep -A2 "Via Ingress" | grep Grafana || echo "Run 'make configure-access' first"
+	@make open-grafana
 
 .PHONY: pf-airflow
 pf-airflow: ## Port-forward Airflow
@@ -244,6 +371,95 @@ status: ## Show cluster status
 .PHONY: events
 events: ## Show recent Kubernetes events
 	kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -20
+
+# ========== Troubleshooting ==========
+
+.PHONY: debug-s3
+debug-s3: ## Debug S3 access issues
+	@echo "Testing S3 access..."
+	@yc storage bucket list || echo "Failed to list buckets"
+	@echo ""
+	@echo "Current S3 credentials:"
+	@grep "ACCESS_KEY\|SECRET_KEY" .env | grep -v "#" | head -4
+	@echo ""
+	@echo "S3 service account:"
+	@yc iam service-account get s3-storage-sa 2>/dev/null || echo "Not found"
+
+.PHONY: debug-terraform
+debug-terraform: ## Debug Terraform access issues
+	@echo "Testing Terraform service account..."
+	@if [ -f "yc-terraform-key.json" ]; then \
+		YC_SERVICE_ACCOUNT_KEY_FILE=yc-terraform-key.json yc resource-manager cloud list && \
+		echo "✓ Terraform SA works" || echo "✗ Terraform SA failed"; \
+	else \
+		echo "✗ No terraform key found"; \
+	fi
+
+.PHONY: reset-sa
+reset-sa: ## Reset and recreate all service accounts
+	@echo "WARNING: This will delete and recreate all service accounts!"
+	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || exit 1
+	@echo "Deleting service accounts..."
+	@yc iam service-account delete --name terraform-sa 2>/dev/null || true
+	@yc iam service-account delete --name s3-storage-sa 2>/dev/null || true
+	@yc iam service-account delete --name k8s-node-sa 2>/dev/null || true
+	@yc iam service-account delete --name monitoring-sa 2>/dev/null || true
+	@sleep 5
+	@echo "Recreating service accounts..."
+	@scripts/00-prerequisites/04-setup-service-accounts.sh
+
+# ========== Quick Fixes ==========
+
+.PHONY: fix-s3-keys
+fix-s3-keys: ## Regenerate S3 access keys
+	@echo "Regenerating S3 access keys..."
+	@scripts/00-prerequisites/04-setup-service-accounts.sh
+	@echo "Loading new credentials..."
+	@source .env && scripts/01-infrastructure/01-create-s3-bucket.sh
+
+.PHONY: restore-from-artifacts
+restore-from-artifacts: ## Restore configuration from artifacts
+	@echo "Restoring from artifacts..."
+	@if [ -f ".artifacts/terraform-sa-key.json" ]; then \
+		cp .artifacts/terraform-sa-key.json yc-terraform-key.json && \
+		echo "✓ Restored Terraform key"; \
+	fi
+	@if [ -f ".artifacts/s3-keys.json" ]; then \
+		ACCESS_KEY=$$(jq -r '.access_key' .artifacts/s3-keys.json) && \
+		SECRET_KEY=$$(jq -r '.secret_key' .artifacts/s3-keys.json) && \
+		sed -i.bak '/^export ACCESS_KEY=/d' .env && \
+		sed -i.bak '/^export SECRET_KEY=/d' .env && \
+		echo "export ACCESS_KEY=\"$$ACCESS_KEY\"" >> .env && \
+		echo "export SECRET_KEY=\"$$SECRET_KEY\"" >> .env && \
+		echo "✓ Restored S3 keys"; \
+	fi
+
+# ========== DNS and Domain Configuration ==========
+
+.PHONY: configure-domain
+configure-domain: ## Configure domain name for services
+	@read -p "Enter your domain name (e.g., example.com): " domain; \
+	if [ -n "$$domain" ]; then \
+		LB_IP=$$(cd infrastructure/terraform && terraform output -raw load_balancer_ip); \
+		echo ""; \
+		echo "Add these DNS records to your domain:"; \
+		echo "  A    airflow.$$domain    → $$LB_IP"; \
+		echo "  A    grafana.$$domain    → $$LB_IP"; \
+		echo "  A    argocd.$$domain     → $$LB_IP"; \
+		echo ""; \
+		echo "Then run: make apply-domain-ingress DOMAIN=$$domain"; \
+	fi
+
+.PHONY: apply-domain-ingress
+apply-domain-ingress: ## Apply Ingress with domain names
+	@if [ -z "$(DOMAIN)" ]; then \
+		echo "Usage: make apply-domain-ingress DOMAIN=example.com"; \
+		exit 1; \
+	fi; \
+	echo "Applying Ingress for domain $(DOMAIN)..."; \
+	cat kubernetes/base/ingress-configuration.yaml | \
+		sed "s/# host: .*/host: airflow.$(DOMAIN)/" | \
+		kubectl apply -f -
 
 # ========== Utilities ==========
 
@@ -298,8 +514,9 @@ help-quick: ## Show quick start guide
 	@echo "Quick Start Guide:"
 	@echo "  1. cp .env.example .env"
 	@echo "  2. Edit .env with your values"
-	@echo "  3. make init"
+	@echo "  3. make init-complete"
 	@echo "  4. make deploy"
+	@echo "  5. make show-urls"
 	@echo ""
 	@echo "To destroy:"
 	@echo "  make destroy"
@@ -314,3 +531,6 @@ help-troubleshoot: ## Show troubleshooting guide
 	@echo "  make troubleshoot       - Run diagnostics"
 	@echo "  make logs-airflow       - Show Airflow logs"
 	@echo "  make events             - Show K8s events"
+	@echo "  make debug-s3           - Debug S3 access"
+	@echo "  make debug-terraform    - Debug Terraform SA"
+	@echo "  make fix-ingress        - Fix Ingress controller"

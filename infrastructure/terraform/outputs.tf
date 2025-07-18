@@ -22,14 +22,19 @@ output "worker_ips" {
   }
 }
 
-# IP адрес Load Balancer - извлекаем из первого listener
+# IP адрес Load Balancer
 output "load_balancer_ip" {
   description = "IP address of the load balancer"
-  value = flatten([
-    for listener in yandex_lb_network_load_balancer.k8s_lb.listener : [
-      for addr in listener.external_address_spec : addr.address
-    ] if listener.name == "http-listener"
-  ])[0]
+  value = try(
+    flatten([
+      for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+      listener.external_address_spec[*].address if listener.name == "http"
+    ])[0],
+    flatten([
+      for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+      listener.external_address_spec[*].address
+    ])[0]
+  )
 }
 
 # Внутренний IP master для NFS
@@ -83,19 +88,53 @@ output "get_kubeconfig_command" {
 output "service_urls" {
   description = "URLs to access services"
   value = {
-    airflow = format("http://%s:32080",
-      flatten([
-        for listener in yandex_lb_network_load_balancer.k8s_lb.listener : [
-          for addr in listener.external_address_spec : addr.address
-        ] if listener.name == "http-listener"
-      ])[0]
+    airflow = format("http://%s:8080",
+      try(
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address if listener.name == "airflow"
+        ])[0],
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address
+        ])[0]
+      )
     )
-    grafana = format("http://%s:32080/grafana",
-      flatten([
-        for listener in yandex_lb_network_load_balancer.k8s_lb.listener : [
-          for addr in listener.external_address_spec : addr.address
-        ] if listener.name == "http-listener"
-      ])[0]
+    grafana = format("http://%s:3000",
+      try(
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address if listener.name == "grafana"
+        ])[0],
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address
+        ])[0]
+      )
+    )
+    prometheus = format("http://%s:9090",
+      try(
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address if listener.name == "prometheus"
+        ])[0],
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address
+        ])[0]
+      )
+    )
+    argocd = format("https://%s:8443",
+      try(
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address if listener.name == "argocd"
+        ])[0],
+        flatten([
+          for listener in yandex_lb_network_load_balancer.k8s_lb.listener :
+          listener.external_address_spec[*].address
+        ])[0]
+      )
     )
   }
 }

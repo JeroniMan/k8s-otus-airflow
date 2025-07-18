@@ -4,6 +4,9 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# Create artifacts directory if not exists
+mkdir -p "${PROJECT_ROOT}/.artifacts"
+
 # Load colors
 source "${SCRIPT_DIR}/colors.sh"
 

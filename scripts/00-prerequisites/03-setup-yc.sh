@@ -87,14 +87,27 @@ read -p "Do you want to create a service account key for Terraform? (yes/no): " 
 if [ "$create_sa" = "yes" ]; then
     SA_NAME="terraform-sa"
 
+    # Create artifacts directory
+    mkdir -p "${PROJECT_ROOT}/.artifacts"
+
     # Check if service account exists
     if yc iam service-account get "$SA_NAME" >/dev/null 2>&1; then
         info "Service account $SA_NAME already exists"
+
+        # Clean up old keys
+        info "Cleaning up old keys..."
+        OLD_KEYS=$(yc iam key list --service-account-name "$SA_NAME" --format json | jq -r '.[].id')
+        for key_id in $OLD_KEYS; do
+            yc iam key delete --id "$key_id" || true
+        done
     else
         info "Creating service account $SA_NAME..."
         yc iam service-account create --name "$SA_NAME" \
             --description "Service account for Terraform"
     fi
+
+    # Save SA info
+    yc iam service-account get "$SA_NAME" --format json > "${PROJECT_ROOT}/.artifacts/terraform-sa-info.json"
 
     # Assign roles
     info "Assigning roles to service account..."
@@ -107,18 +120,16 @@ if [ "$create_sa" = "yes" ]; then
 
     # Create key
     KEY_FILE="${PROJECT_ROOT}/yc-terraform-key.json"
-    if [ -f "$KEY_FILE" ]; then
-        warning "Key file already exists: $KEY_FILE"
-        read -p "Overwrite? (yes/no): " overwrite
-        if [ "$overwrite" != "yes" ]; then
-            exit 0
-        fi
-    fi
 
     info "Creating service account key..."
     yc iam key create \
         --service-account-name "$SA_NAME" \
         --output "$KEY_FILE"
+
+    chmod 600 "$KEY_FILE"
+
+    # Save key info to artifacts
+    cp "$KEY_FILE" "${PROJECT_ROOT}/.artifacts/terraform-sa-key.json"
 
     # Update .env
     if grep -q "^export YC_SERVICE_ACCOUNT_KEY_FILE=" "${PROJECT_ROOT}/.env"; then
@@ -129,6 +140,12 @@ if [ "$create_sa" = "yes" ]; then
 
     success "Service account key created: $KEY_FILE"
     warning "Keep this key secure and do not commit it to git!"
+
+    # Add to .gitignore
+    if [ -f "${PROJECT_ROOT}/.gitignore" ]; then
+        grep -q "yc-terraform-key.json" "${PROJECT_ROOT}/.gitignore" || echo "yc-terraform-key.json" >> "${PROJECT_ROOT}/.gitignore"
+        grep -q ".artifacts/" "${PROJECT_ROOT}/.gitignore" || echo ".artifacts/" >> "${PROJECT_ROOT}/.gitignore"
+    fi
 fi
 
 success "Yandex Cloud setup complete!"

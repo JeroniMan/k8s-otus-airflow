@@ -16,6 +16,21 @@ kubectl apply -f "${PROJECT_ROOT}/kubernetes/base/namespaces.yaml"
 
 # Airflow secrets
 info "Creating Airflow secrets..."
+
+# Генерируем Fernet key если его нет
+if [ -z "$AIRFLOW_FERNET_KEY" ]; then
+    AIRFLOW_FERNET_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+    echo "export AIRFLOW_FERNET_KEY=\"$AIRFLOW_FERNET_KEY\"" >> "${PROJECT_ROOT}/.env"
+    info "Generated new Fernet key"
+fi
+
+# Генерируем webserver secret key если его нет
+if [ -z "$AIRFLOW_WEBSERVER_SECRET_KEY" ]; then
+    AIRFLOW_WEBSERVER_SECRET_KEY=$(openssl rand -hex 32)
+    echo "export AIRFLOW_WEBSERVER_SECRET_KEY=\"$AIRFLOW_WEBSERVER_SECRET_KEY\"" >> "${PROJECT_ROOT}/.env"
+    info "Generated new webserver secret key"
+fi
+
 kubectl create namespace airflow --dry-run=client -o yaml | kubectl apply -f -
 
 # Generate Fernet key if not exists

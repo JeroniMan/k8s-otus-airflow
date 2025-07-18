@@ -98,3 +98,6 @@ Kubernetes:
 EOF
 
 info "Access information saved to: access-info.txt"
+
+# Also save to artifacts
+cp "${PROJECT_ROOT}/access-info.txt" "${PROJECT_ROOT}/.artifacts/access-info.txt" 2>/dev/null || true

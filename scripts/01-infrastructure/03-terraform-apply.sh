@@ -88,6 +88,15 @@ terraform apply tfplan
 info "Saving outputs..."
 terraform output -json > "${PROJECT_ROOT}/terraform-outputs.json"
 
+# Save to artifacts
+mkdir -p "${PROJECT_ROOT}/.artifacts"
+cp "${PROJECT_ROOT}/terraform-outputs.json" "${PROJECT_ROOT}/.artifacts/terraform-outputs.json"
+
+# Save resource list
+yc compute instance list --format json > "${PROJECT_ROOT}/.artifacts/compute-instances.json"
+yc vpc network list --format json > "${PROJECT_ROOT}/.artifacts/vpc-networks.json"
+yc lb nlb list --format json > "${PROJECT_ROOT}/.artifacts/load-balancers.json"
+
 # Show important outputs
 echo ""
 success "Infrastructure created successfully!"
@@ -103,3 +112,4 @@ SUBNET_ID=$(terraform output -json network_info | jq -r '.subnet_id')
 sed -i.bak "s/^export SUBNET_ID=.*/export SUBNET_ID=\"$SUBNET_ID\"/" "${PROJECT_ROOT}/.env"
 
 success "Infrastructure is ready!"
+info "All artifacts saved to: ${PROJECT_ROOT}/.artifacts/"
